@@ -24,7 +24,10 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(identifiers: &'a mut IndexMap<String, Identified>, iter: impl Iterator<Item = char>) -> Self {
+    pub fn new(
+        identifiers: &'a mut IndexMap<String, Identified>,
+        iter: impl Iterator<Item = char>,
+    ) -> Self {
         Self {
             chars: iter.collect(),
             offset: 0,
@@ -37,7 +40,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn from_file(identifiers: &'a mut IndexMap<String, Identified>, filename: &str) -> IOResult<Self> {
+    pub fn from_file(
+        identifiers: &'a mut IndexMap<String, Identified>,
+        filename: &str,
+    ) -> IOResult<Self> {
         let path = Path::new(filename);
         let src = std::fs::read_to_string(path)?;
         Ok(Self::new(identifiers, src.chars()))
@@ -47,41 +53,16 @@ impl<'a> Lexer<'a> {
         self.skip_comment();
         let (line, column) = (self.line, self.column);
         let r = match self.next_char()? {
-            '\"' => self.match_str_literal(),
-            '\'' => self.match_char_literal(),
             '@' => self.match_glob_var(),
+            '.' => {
+                self.put_back();
+                self.match_num_literal('0')
+            }
             c if c.is_ascii_digit() => self.match_num_literal(c),
             c if c.is_alphabetic() || c == '_' => self.match_identifier(),
             c => Ok(LexToken::Symbol(c)),
         };
-        Some((
-            FilePos {
-                line,
-                column,
-            },
-            r
-        ))
-    }
-
-    fn match_str_literal(&mut self) -> Result<LexToken, LexError> {
-        let mut str = String::new();
-        loop {
-            let c = self.next_escaped()?;
-            if c == '"' {
-                break;
-            }
-            str.push(c);
-        }
-        Ok(LexToken::StringLiteral(str))
-    }
-
-    fn match_char_literal(&mut self) -> Result<LexToken, LexError> {
-        let t = LexToken::CharLiteral(self.next_escaped()?);
-        if self.next_char() != Some('\'') {
-            Err(LexError::CharLiteralNotClosed)
-        } else {
-            Ok(t)
-        }
+        Some((FilePos { line, column }, r))
     }
 
     fn match_num_literal(&mut self, c: char) -> Result<LexToken, LexError> {
@@ -94,7 +75,11 @@ impl<'a> Lexer<'a> {
         }
 
         let (base, mut str) = self.get_base(c);
-        let mut state = if base == 10 { NumState::Initial } else { NumState::OtherBase };
+        let mut state = if base == 10 {
+            NumState::Initial
+        } else {
+            NumState::OtherBase
+        };
         while let Some(c) = self.next_char() {
             if c == '.' && state == NumState::Initial {
                 state = NumState::Fraction;
@@ -186,23 +171,6 @@ impl<'a> Lexer<'a> {
         Some(c)
     }
 
-    fn next_escaped(&mut self) -> Result<char, LexError> {
-        let c = self.next_char().ok_or(LexError::EndOfInput)?;
-        if c == '\\' {
-            match self.next_char().ok_or(LexError::EndOfInput)? {
-                'n' => Ok('\n'),
-                'r' => Ok('\r'),
-                't' => Ok('\t'),
-                '\\' => Ok('\\'),
-                '\"' => Ok('\"'),
-                '\'' => Ok('\''),
-                c => Err(LexError::UnknownEscapeCharacter(c)),
-            }
-        } else {
-            Ok(c)
-        }
-    }
-
     fn lookahead(&self) -> Option<char> {
         if self.eof() {
             None
@@ -223,38 +191,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_comment(&mut self) {
-        enum Comment {
-            None,
-            Line,
-            Block,
-        }
-
-        let mut comm = Comment::None;
+        let mut comm = false;
         while let Some(c) = self.next_char() {
-            match comm {
-                Comment::None => {
-                    if c == '/' && self.lookahead() == Some('/') {
-                        self.next_char();
-                        comm = Comment::Line;
-                    } else if c == '/' && self.lookahead() == Some('*') {
-                        self.next_char();
-                        comm = Comment::Block;
-                    } else if !c.is_whitespace() {
-                        self.put_back();
-                        return;
-                    }
+            if !comm {
+                if c == '"' {
+                    comm = true
+                } else if !c.is_whitespace() {
+                    self.put_back();
+                    return;
                 }
-                Comment::Line => {
-                    if c == '\n' {
-                        comm = Comment::None;
-                    }
-                }
-                Comment::Block => {
-                    if c == '*' && self.lookahead() == Some('/') {
-                        self.next_char();
-                        comm = Comment::None;
-                    }
-                }
+            } else if c == '\n' {
+                comm = false;
             }
         }
     }
@@ -272,8 +219,7 @@ impl Iterator for Lexer<'_> {
     }
 }
 
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum LexToken {
     Symbol(char),
     IntLiteral(i64),
@@ -281,12 +227,9 @@ pub enum LexToken {
     Keyword(usize),
     GlobalVar(usize, bool),
     Identifier(usize),
-    StringLiteral(String),
-    CharLiteral(char),
 }
 
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum LexError {
     EndOfInput,
     UnknownEscapeCharacter(char),
@@ -338,17 +281,6 @@ mod test {
         let mut lex = Lexer::new(&mut ident, "     \n\n \t\t\n   \t\n  *".chars());
         lex.skip_comment();
         assert_eq!(lex.next_char(), Some('*'));
-    }
-
-    #[test]
-    fn escaped_chars() {
-        let mut ident = IndexMap::<String, Identified>::new();
-        let mut lex = Lexer::new(&mut ident, "\\t\\n\\\'\\\"\\_".chars());
-        assert_eq!(lex.next_escaped(), Ok('\t'));
-        assert_eq!(lex.next_escaped(), Ok('\n'));
-        assert_eq!(lex.next_escaped(), Ok('\''));
-        assert_eq!(lex.next_escaped(), Ok('\"'));
-        assert_eq!(lex.next_escaped(), Err(LexError::UnknownEscapeCharacter('_')));
     }
 
     #[test]

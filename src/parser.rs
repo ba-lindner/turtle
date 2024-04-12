@@ -30,7 +30,7 @@ impl<'a> Parser<'a> {
         }
         Some(if self.match_keyword("path") {
             self.parse_path()
-        } else if self.match_keyword("calc") {
+        } else if self.match_keyword("calculation") {
             self.parse_calc()
         } else if self.match_keyword("begin") {
             self.parse_main()
@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
 
     fn parse_path(&mut self) -> PResult {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Path(0))?;
+        self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
         if self.match_symbol('(') {
             while let Some(LexToken::Identifier(arg)) = self.lookahead() {
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
 
     fn parse_calc(&mut self) -> PResult {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Calc(0))?;
+        self.set_ident_type(name, Identified::Calc)?;
         let mut args = Vec::new();
         if self.match_symbol('(') {
             while let Some(LexToken::Identifier(arg)) = self.lookahead() {
@@ -294,7 +294,7 @@ impl<'a> Parser<'a> {
 
     fn parse_path_call(&mut self) -> Result<Statement, (FilePos, ParseError)> {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Path(0))?;
+        self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
         if self.match_symbol('(') && !self.match_symbol(')') {
             args.push(self.parse_expr()?);
@@ -465,11 +465,11 @@ impl<'a> Parser<'a> {
             let id = *id;
             self.pos += 1;
             let (id, anz) = match crate::KEYWORDS[id] {
-                "sin" => (0, 1),
-                "cos" => (1, 1),
-                "tan" => (2, 1),
-                "sqrt" => (3, 1),
-                "rand" => (4, 2),
+                "sin" => (PredefFunc::Sin, 1),
+                "cos" => (PredefFunc::Cos, 1),
+                "tan" => (PredefFunc::Tan, 1),
+                "sqrt" => (PredefFunc::Sqrt, 1),
+                "rand" => (PredefFunc::Rand, 2),
                 _ => {
                     return Err(self.unexpected_token_kind(LexToken::Keyword(0)));
                 },
@@ -486,7 +486,7 @@ impl<'a> Parser<'a> {
             let id = *id;
             self.pos += 1;
             if self.match_symbol('(') {
-                self.set_ident_type(id, Identified::Calc(0))?;
+                self.set_ident_type(id, Identified::Calc)?;
                 let mut args = Vec::new();
                 if !self.match_symbol(')') {
                     args.push(self.parse_expr()?);
@@ -551,7 +551,9 @@ impl<'a> Parser<'a> {
         if self.match_keyword("not") {
             Ok(Cond::Not(Box::new(self.parse_single_cond()?)))
         } else if self.match_symbol('(') {
-            Ok(Cond::Bracket(Box::new(self.parse_single_cond()?)))
+            let boxed = self.parse_single_cond()?;
+            self.expect_symbol(')')?;
+            Ok(Cond::Bracket(Box::new(boxed)))
         } else {
             let lhs = self.parse_expr()?;
             let cmp = self.parse_cmp_operator()?;

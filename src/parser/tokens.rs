@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub type ArgList = Vec<Expr>;
 pub type ArgDefList = Vec<usize>;
 pub type Statements = Vec<Statement>;
@@ -56,7 +58,7 @@ pub enum Expr {
     UnOperation(UnOperator, Box<Expr>),
     Absolute(Box<Expr>),
     Bracket(Box<Expr>),
-    FuncCall(usize, ArgList),
+    FuncCall(PredefFunc, ArgList),
     CalcCall(usize, ArgList),
 }
 
@@ -69,9 +71,29 @@ pub enum BiOperator {
     Exp,
 }
 
+impl Display for BiOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BiOperator::Add => write!(f, "+"),
+            BiOperator::Sub => write!(f, "-"),
+            BiOperator::Mul => write!(f, "*"),
+            BiOperator::Div => write!(f, "/"),
+            BiOperator::Exp => write!(f, "^"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum UnOperator {
     Neg,
+}
+
+impl Display for UnOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UnOperator::Neg => write!(f, "-"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -91,4 +113,38 @@ pub enum CmpOperator {
     GreaterEqual,
     Equal,
     UnEqual,
+}
+
+impl Display for CmpOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CmpOperator::Less => write!(f, "<"),
+            CmpOperator::LessEqual => write!(f, "<="),
+            CmpOperator::Greater => write!(f, ">"),
+            CmpOperator::GreaterEqual => write!(f, ">="),
+            CmpOperator::Equal => write!(f, "=="),
+            CmpOperator::UnEqual => write!(f, "!="),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PredefFunc {
+    Sin,
+    Cos,
+    Tan,
+    Sqrt,
+    Rand,
+}
+
+impl Display for PredefFunc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PredefFunc::Sin => write!(f, "sin"),
+            PredefFunc::Cos => write!(f, "cos"),
+            PredefFunc::Tan => write!(f, "tan"),
+            PredefFunc::Sqrt => write!(f, "sqrt"),
+            PredefFunc::Rand => write!(f, "__ttl_rand"),
+        }
+    }
 }

@@ -4,15 +4,17 @@ use indexmap::IndexMap;
 use lexer::{LResult, LexError, Lexer};
 use parser::{tokens::*, PInput, ParseError, Parser};
 pub use interpreter::Interpreter;
+pub use ccomp::CComp;
 
 mod lexer;
 mod parser;
 mod interpreter;
+mod ccomp;
 
 // Aufwand: bisher ~2h
 
 /// Keywords of the turtle language.
-const KEYWORDS: [&'static str; 50] = [
+const KEYWORDS: [&str; 50] = [
     "walk", "back", "jump", "home", "turn", "left", "right", "direction",
     "color", "clear", "stop", "finish", "path", "store", "in", "add",
     "to", "sub", "from", "mul", "by", "div", "mark", "if",
@@ -25,7 +27,7 @@ const KEYWORDS: [&'static str; 50] = [
 /// Predefined global variables of the turtle language.
 /// 
 /// The boolean indicates whether the variable is read-only (`false`) or writable (`true`).
-const PREDEF_VARS: [(&'static str, bool); 20] = [("dir", false), ("dist", false), ("x", false), ("y", false), ("1", false),
+const PREDEF_VARS: [(&str, bool); 20] = [("dir", false), ("dist", false), ("x", false), ("y", false), ("1", false),
 ("2", false), ("3", false), ("4", false), ("5", false), ("6", false), ("7", false), ("8", false), ("9", false), ("pi", false),
 ("max_x", true), ("max_y", true), ("delay", true), ("red", true), ("blue", true), ("green", true)];
 
@@ -33,8 +35,8 @@ const PREDEF_VARS: [(&'static str, bool); 20] = [("dir", false), ("dist", false)
 #[derive(Clone, Copy)]
 pub enum Identified {
     Unknown,
-    Path(usize),
-    Calc(usize),
+    Path,
+    Calc,
     GlobalVar,
     LocalVar,
 }
@@ -158,15 +160,15 @@ impl Display for FilePos {
 /// # Examples
 /// ```
 /// # use turtle::parse_file;
-/// let prog = parse_file("tmp.tg").unwrap();
+/// let prog = parse_file("examples/circle.tg").unwrap();
 /// ``` 
-pub fn parse_file(filename: &str) -> Result<TProgram, CompError> {
+pub fn parse_file(filename: &str) -> Result<(TProgram, IndexMap<String, Identified>), CompError> {
     let mut ident = IndexMap::<String, Identified>::new();
     let lex = Lexer::from_file(&mut ident, filename)?;
     let ltokens: Vec<_> = lex.collect();
     let pinp = check_lexems(ltokens)?;
     let parse = Parser::new(&mut ident, pinp);
-    TProgram::new(parse)
+    Ok((TProgram::new(parse)?, ident))
 }
 
 /// Check the results of the lexer.

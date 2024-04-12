@@ -1,13 +1,21 @@
+
+" Kleines Testprogramm: Kreis zeichnen
+"
+" Optionale Befehlszeilen-Werte: Radius, Anzahl Teilstücke
+"
+" Originalversion Alexander Hohmann & Max Jänichen 2021
+" Klaus Kusche, 2022
+
 path circle(r,n)
   jump r
 
-  store 360/n in beta
-  store 2*@pi*r/n in a
+  store 180-360/n in beta
+  store 2*(2*@pi*r/2)/n in a
 
-  turn left 90+beta/2
+  turn right 180-beta/2
   counter x from 0 to n do
     walk a
-    turn left beta
+    turn right 180-beta
   done
 endpath
 
