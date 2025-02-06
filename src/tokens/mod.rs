@@ -1,8 +1,15 @@
 use std::fmt::Display;
 
+use crate::{Pos, StepVariant};
+
+use self::predef_vars::PredefVar;
+
+pub mod keywords;
+pub mod predef_vars;
+
 pub type ArgList = Vec<Expr>;
 pub type ArgDefList = Vec<usize>;
-pub type Statements = Vec<Statement>;
+pub type Statements = Vec<Pos<Statement>>;
 
 #[derive(Debug)]
 pub enum ParseToken {
@@ -13,14 +20,16 @@ pub enum ParseToken {
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
-    Walk(Expr),
-    WalkBack(Expr),
-    Jump(Expr),
-    JumpBack(Expr),
-    WalkHome,
-    JumpHome,
-    TurnLeft(Expr),
-    TurnRight(Expr),
+    MoveDist {
+        dist: Expr,
+        draw: bool,
+        back: bool,
+    },
+    MoveHome(bool),
+    Turn {
+        left: bool,
+        by: Expr,
+    },
     Direction(Expr),
     Color(Expr, Expr, Expr),
     Clear,
@@ -28,26 +37,50 @@ pub enum Statement {
     Finish,
     PathCall(usize, ArgList),
     Store(Expr, Variable),
-    Add(Expr, Variable),
-    Sub(Expr, Variable),
-    Mul(Expr, Variable),
-    Div(Expr, Variable),
+    Calc {
+        var: Variable,
+        val: Expr,
+        op: BiOperator,
+    },
     Mark,
-    WalkMark,
-    JumpMark,
+    MoveMark(bool),
     IfBranch(Cond, Statements),
     IfElseBranch(Cond, Statements, Statements),
     DoLoop(Expr, Statements),
-    CounterLoop(Variable, Expr, bool, Expr, Option<Expr>, Statements),
+    CounterLoop { 
+        counter: Variable,
+        from: Expr,
+        up: bool,
+        to: Expr,
+        step: Option<Expr>,
+        body: Statements
+    },
     WhileLoop(Cond, Statements),
     RepeatLoop(Cond, Statements),
+}
+
+impl Statement {
+    pub fn kind(&self) -> StepVariant {
+        match self {
+            Self::MoveDist { draw: true, .. } |
+            Self::MoveHome(true) |
+            Self::MoveMark(true) => StepVariant::Draw,
+            Self::Clear |
+            Self::Direction(_) |
+            Self::MoveDist { .. } |
+            Self::MoveHome(_) |
+            Self::MoveMark(_) |
+            Self::Turn { .. } => StepVariant::Turtle,
+            _ => StepVariant::Statement,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Variable {
     Local(usize),
     Global(usize),
-    GlobalPreDef(usize)
+    GlobalPreDef(PredefVar),
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,20 +88,32 @@ pub enum Expr {
     Const(f64),
     Variable(Variable),
     BiOperation(Box<Expr>, BiOperator, Box<Expr>),
-    UnOperation(UnOperator, Box<Expr>),
+    Negate(Box<Expr>),
     Absolute(Box<Expr>),
     Bracket(Box<Expr>),
     FuncCall(PredefFunc, ArgList),
     CalcCall(usize, ArgList),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BiOperator {
     Add,
     Sub,
     Mul,
     Div,
     Exp,
+}
+
+impl BiOperator {
+    pub fn calc(&self, val1: f64, val2: f64) -> f64 {
+        match self {
+            Self::Add => val1 + val2,
+            Self::Sub => val1 - val2,
+            Self::Mul => val1 * val2,
+            Self::Div => val1 / val2,
+            Self::Exp => val1.powf(val2),
+        }
+    }
 }
 
 impl Display for BiOperator {
@@ -84,25 +129,12 @@ impl Display for BiOperator {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum UnOperator {
-    Neg,
-}
-
-impl Display for UnOperator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UnOperator::Neg => write!(f, "-"),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
 pub enum Cond {
     Bracket(Box<Cond>),
     Cmp(Box<Expr>, CmpOperator, Box<Expr>),
     And(Box<Cond>, Box<Cond>),
     Or(Box<Cond>, Box<Cond>),
-    Not(Box<Cond>)
+    Not(Box<Cond>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -113,6 +145,19 @@ pub enum CmpOperator {
     GreaterEqual,
     Equal,
     UnEqual,
+}
+
+impl CmpOperator {
+    pub fn compare(&self, lhs: f64, rhs: f64) -> bool {
+        match self {
+            CmpOperator::Less => lhs < rhs,
+            CmpOperator::LessEqual => lhs <= rhs,
+            CmpOperator::Greater => lhs > rhs,
+            CmpOperator::GreaterEqual => lhs >= rhs,
+            CmpOperator::Equal => lhs == rhs,
+            CmpOperator::UnEqual => lhs != rhs,
+        }
+    }
 }
 
 impl Display for CmpOperator {
@@ -135,6 +180,19 @@ pub enum PredefFunc {
     Tan,
     Sqrt,
     Rand,
+}
+
+impl PredefFunc {
+    pub fn calc(&self, args: &[f64]) -> f64 {
+        use std::f64::consts::PI;
+        match self {
+            PredefFunc::Sin => (args[0] * PI / 180.0).sin(),
+            PredefFunc::Cos => (args[0] * PI / 180.0).cos(),
+            PredefFunc::Tan => (args[0] * PI / 180.0).tan(),
+            PredefFunc::Sqrt => args[0].sqrt(),
+            PredefFunc::Rand => args[0] + (args[1] - args[0]) * rand::random::<f64>(),
+        }
+    }
 }
 
 impl Display for PredefFunc {

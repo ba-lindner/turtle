@@ -19,7 +19,7 @@ double __ttl_x = 0.0, __ttl_y = 0.0;
 double __ttl_dir = 0.0, __ttl_delay = 1.0;
 double __ttl_args[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double __ttl_max_x = 20.0, __ttl_max_y = 15.0;
-double __ttl_red = 100.0, __ttl_green = 100.0, __ttl_blue = 100.0;
+double __ttl_red = 100.0, __ttl_green = 100.0, __ttl_blue = 0.0;
 
 double __ttl_dist() {
 	return sqrt(__ttl_x * __ttl_x + __ttl_y * __ttl_y);
@@ -34,24 +34,37 @@ void __ttl_init(int argc, const char *argv[]) {
 }
 
 void __ttl_stop() {
+	printf("halt and catch fire\n");
 	while (1) {
 		sdlMilliSleep(200);
 	}
 }
 
+static int to_color(double x) {
+  if (x <= 0) return 0;
+  if (x >= 100) return 255;
+  return lround(x / 100 * 255);
+}
+
 void __ttl_walk_pos(double next_x, double next_y, bool draw) {
 	if (draw) {
-		sdlDrawLine(
-			(int) (SDL_X_SIZE / 2.0 * (1.0 + __ttl_x / __ttl_max_x)),
-			(int) (SDL_Y_SIZE / 2.0 * (1.0 + __ttl_y / __ttl_max_y)),
-			(int) (SDL_X_SIZE / 2.0 * (1.0 + next_x / __ttl_max_x)),
-			(int) (SDL_Y_SIZE / 2.0 * (1.0 + next_y / __ttl_max_y)),
-			(int) (__ttl_red * 2.55),
-			(int) (__ttl_green * 2.55),
-			(int) (__ttl_blue * 2.55)
-		);
-		sdlUpdate();
-		sdlMilliSleep((int) __ttl_delay);
+		int from_x = (int) (SDL_X_SIZE / 2.0 * (1.0 + __ttl_x / __ttl_max_x));
+		int from_y = (int) (SDL_Y_SIZE / 2.0 * (1.0 + __ttl_y / __ttl_max_y));
+		int to_x = (int) (SDL_X_SIZE / 2.0 * (1.0 + next_x / __ttl_max_x));
+		int to_y = (int) (SDL_Y_SIZE / 2.0 * (1.0 + next_y / __ttl_max_y));
+		if (from_x < SDL_X_SIZE && from_x >= 0
+			&& from_y < SDL_Y_SIZE && from_y >= 0
+			&& to_x < SDL_X_SIZE && to_x >= 0
+			&& to_y < SDL_Y_SIZE && to_y >= 0) {
+			sdlDrawLine(
+				from_x, from_y, to_x, to_y,
+				to_color(__ttl_red),
+				to_color(__ttl_green),
+				to_color(__ttl_blue)
+			);
+			sdlUpdate();
+			sdlMilliSleep((int) __ttl_delay);
+		}
 	}
 	__ttl_x = next_x;
 	__ttl_y = next_y;

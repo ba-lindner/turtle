@@ -1,2 +1,7 @@
 /target
 /ccomp
+!/ccomp/sdlinterf.h
+!/ccomp/sdlinterf.c
+!/ccomp/turtleinterf.h
+!/ccomp/turtleinterf.c
+turtle.exe

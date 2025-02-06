@@ -5,9 +5,11 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 
-use crate::{FilePos, Identified};
+use crate::predef_vars::PredefVar;
+use crate::Positionable;
+use crate::{tokens::keywords::Keyword, FilePos, Identified, Pos};
 
-pub type LResult = (FilePos, Result<LexToken, LexError>);
+pub type LResult = Pos<Result<LexToken, LexError>>;
 
 // Aufwand: bisher ~8h
 
@@ -18,8 +20,6 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     last_col: usize,
-    keywords: IndexMap<&'static str, ()>,
-    predef_vars: IndexMap<&'static str, ()>,
     identifiers: &'a mut IndexMap<String, Identified>,
 }
 
@@ -34,8 +34,6 @@ impl<'a> Lexer<'a> {
             line: 1,
             column: 1,
             last_col: 1,
-            keywords: IndexMap::from_iter(crate::KEYWORDS.iter().map(|&k| (k, ()))),
-            predef_vars: IndexMap::from_iter(crate::PREDEF_VARS.iter().map(|&(v, _)| (v, ()))),
             identifiers,
         }
     }
@@ -62,7 +60,7 @@ impl<'a> Lexer<'a> {
             c if c.is_alphabetic() || c == '_' => self.match_identifier(),
             c => Ok(LexToken::Symbol(c)),
         };
-        Some((FilePos { line, column }, r))
+        Some(r.attach_pos(FilePos { line, column }))
     }
 
     fn match_num_literal(&mut self, c: char) -> Result<LexToken, LexError> {
@@ -121,22 +119,22 @@ impl<'a> Lexer<'a> {
 
     fn match_glob_var(&mut self) -> Result<LexToken, LexError> {
         let str = self.get_identifier();
-        if let Some(idx) = self.predef_vars.get_index_of(&*str) {
-            Ok(LexToken::GlobalVar(idx, true))
+        if let Ok(var) = str.parse() {
+            Ok(LexToken::PredefVar(var))
         } else if let Some(idx) = self.identifiers.get_index_of(&str) {
-            Ok(LexToken::GlobalVar(idx, false))
+            Ok(LexToken::GlobalVar(idx))
         } else {
             let idx = self.identifiers.len();
             self.identifiers.insert(str, Identified::GlobalVar);
-            Ok(LexToken::GlobalVar(idx, false))
+            Ok(LexToken::GlobalVar(idx))
         }
     }
 
     fn match_identifier(&mut self) -> Result<LexToken, LexError> {
         self.put_back();
         let str = self.get_identifier();
-        if let Some(idx) = self.keywords.get_index_of(&*str) {
-            Ok(LexToken::Keyword(idx))
+        if let Ok(kw) = str.parse::<Keyword>() {
+            Ok(LexToken::Keyword(kw))
         } else if let Some(idx) = self.identifiers.get_index_of(&str) {
             Ok(LexToken::Identifier(idx))
         } else {
@@ -172,11 +170,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lookahead(&self) -> Option<char> {
-        if self.eof() {
-            None
-        } else {
-            Some(self.chars[self.offset])
-        }
+        self.chars.get(self.offset).cloned()
     }
 
     fn put_back(&mut self) {
@@ -205,10 +199,6 @@ impl<'a> Lexer<'a> {
             }
         }
     }
-
-    fn eof(&self) -> bool {
-        self.offset == self.chars.len()
-    }
 }
 
 impl Iterator for Lexer<'_> {
@@ -219,13 +209,14 @@ impl Iterator for Lexer<'_> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum LexToken {
     Symbol(char),
     IntLiteral(i64),
     FloatLiteral(f64),
-    Keyword(usize),
-    GlobalVar(usize, bool),
+    Keyword(Keyword),
+    GlobalVar(usize),
+    PredefVar(PredefVar),
     Identifier(usize),
 }
 
@@ -242,9 +233,9 @@ impl Display for LexError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::EndOfInput => write!(f, "End of input reached before token was completed"),
-            Self::UnknownEscapeCharacter(c) => write!(f, "Unknown escape character '{}'", c),
+            Self::UnknownEscapeCharacter(c) => write!(f, "Unknown escape character '{c}'"),
             Self::CharLiteralNotClosed => write!(f, "Char literal not closed"),
-            Self::IntParseError(err) => write!(f, "{}", err),
+            Self::IntParseError(err) => err.fmt(f),
             Self::FloatParseError(err) => err.fmt(f),
         }
     }
@@ -266,10 +257,17 @@ impl From<ParseFloatError> for LexError {
 mod test {
     use super::*;
 
+    macro_rules! lex_this {
+        ($lex:ident, $code:expr) => {
+            let mut ident = IndexMap::<String, Identified>::new();
+            #[allow(unused_mut)]
+            let mut $lex = Lexer::new(&mut ident, $code.chars());
+        };
+    }
+
     #[test]
     fn empty() {
-        let mut ident = IndexMap::<String, Identified>::new();
-        let mut lex = Lexer::new(&mut ident, "".chars());
+        lex_this!(lex, "");
         assert_eq!(lex.lookahead(), None);
         assert_eq!(lex.next_char(), None);
         assert_eq!(lex.next_token(), None);
@@ -277,26 +275,28 @@ mod test {
 
     #[test]
     fn leading_whitespace() {
-        let mut ident = IndexMap::<String, Identified>::new();
-        let mut lex = Lexer::new(&mut ident, "     \n\n \t\t\n   \t\n  *".chars());
+        lex_this!(lex, "     \n\n \t\t\n   \t\n  *");
         lex.skip_comment();
         assert_eq!(lex.next_char(), Some('*'));
     }
 
     #[test]
     fn symbols() {
-        let mut ident = IndexMap::<String, Identified>::new();
-        let mut lex = Lexer::new(&mut ident, "/".chars());
-        assert_eq!(lex.next_token().unwrap().1, Ok(LexToken::Symbol('/')));
+        lex_this!(lex, "/");
+        assert_eq!(*lex.next_token().unwrap(), Ok(LexToken::Symbol('/')));
     }
 
     #[test]
     fn skip_nothing() {
-        let mut ident1 = IndexMap::<String, Identified>::new();
-        let mut ident2 = IndexMap::<String, Identified>::new();
-        let lex1 = Lexer::new(&mut ident1, "path".chars());
-        let mut lex2 = Lexer::new(&mut ident2, "path".chars());
+        lex_this!(lex1, "path");
+        lex_this!(lex2, "path");
         lex2.skip_comment();
         assert_eq!(lex1, lex2);
+    }
+
+    #[test]
+    fn num_literal() {
+        lex_this!(lex, ".123");
+        assert_eq!(*lex.next().unwrap(), Ok(LexToken::FloatLiteral(0.123)));
     }
 }

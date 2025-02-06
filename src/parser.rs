@@ -1,22 +1,24 @@
-use crate::{lexer::LexToken, FilePos, Identified};
+use crate::{
+    lexer::LexToken,
+    tokens::{keywords::Keyword, *},
+    FilePos, Identified, Pos, Positionable,
+};
 use indexmap::IndexMap;
-use tokens::*;
 
-pub mod tokens;
+use self::predef_vars::PredefVar;
 
 // Aufwand: bisher ~5h
 
-type PResult = Result<ParseToken, (FilePos, ParseError)>;
-pub type PInput = (FilePos, Option<LexToken>);
+type PRes<T> = Result<T, Pos<ParseError>>;
 
 pub struct Parser<'a> {
-    ltokens: Vec<PInput>,
+    ltokens: Vec<Pos<LexToken>>,
     pos: usize,
     ident: &'a mut IndexMap<String, Identified>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(ident: &'a mut IndexMap<String, Identified>, ltokens: Vec<PInput>) -> Self {
+    pub fn new(ident: &'a mut IndexMap<String, Identified>, ltokens: Vec<Pos<LexToken>>) -> Self {
         Self {
             ltokens,
             pos: 0,
@@ -24,26 +26,26 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_next(&mut self) -> Option<PResult> {
+    pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
         if self.eof() {
             return None;
         }
-        Some(if self.match_keyword("path") {
+        Some(if self.match_keyword(Keyword::Path) {
             self.parse_path()
-        } else if self.match_keyword("calculation") {
+        } else if self.match_keyword(Keyword::Calculation) {
             self.parse_calc()
-        } else if self.match_keyword("begin") {
+        } else if self.match_keyword(Keyword::Begin) {
             self.parse_main()
         } else {
-            Err(self.unexpected_token_kind(LexToken::Keyword(0)))
+            Err(self.unexpected_token(TokenExpectation::BlockStart))
         })
     }
 
-    fn lookahead(&self) -> Option<&LexToken> {
+    fn lookahead(&self) -> Option<LexToken> {
         if self.eof() {
             None
         } else {
-            self.ltokens[self.pos].1.as_ref()
+            Some(*self.ltokens[self.pos])
         }
     }
 
@@ -52,50 +54,33 @@ impl<'a> Parser<'a> {
             None
         } else {
             self.pos += 1;
-            self.ltokens[self.pos - 1].1.take()
+            Some(*self.ltokens[self.pos - 1])
         }
     }
 
-    /*fn put_back(&mut self, token: LexToken) {
-        assert!(self.pos > 0);
-        self.pos -= 1;
-        assert!(self.ltokens[self.pos].token.is_none());
-        self.ltokens[self.pos].token = Some(token);
-    }*/
-
-    fn keyword_index(kw: &str) -> Option<usize> {
-        for (idx, &key) in crate::KEYWORDS.iter().enumerate() {
-            if kw == key {
-                return Some(idx);
-            }
-        }
-        None
-    }
-
-    fn match_keyword(&mut self, kw: &str) -> bool {
-        let Some(LexToken::Keyword(idx)) = self.lookahead() else {
+    fn match_keyword(&mut self, kw: Keyword) -> bool {
+        let Some(LexToken::Keyword(found)) = self.lookahead() else {
             return false;
         };
-        if kw != crate::KEYWORDS[*idx] {
+        if found != kw {
             return false;
         }
         self.pos += 1;
         true
     }
 
-    fn expect_keyword(&mut self, kw: &str) -> Result<(), (FilePos, ParseError)> {
+    fn expect_keyword(&mut self, kw: Keyword) -> PRes<()> {
         if !self.match_keyword(kw) {
-            Err(self.unexpected_token_exact(LexToken::Keyword(Self::keyword_index(kw).unwrap())))
+            Err(self.unexpected_token(TokenExpectation::ExactKeyword(LexToken::Keyword(kw))))
         } else {
             Ok(())
         }
     }
 
-    fn match_identifier(&mut self) -> Result<usize, (FilePos, ParseError)> {
+    fn match_identifier(&mut self) -> PRes<usize> {
         let Some(LexToken::Identifier(name)) = self.lookahead() else {
-            return Err(self.unexpected_token_kind(LexToken::Identifier(0)));
+            return Err(self.unexpected_token(TokenExpectation::AnyIdentifier));
         };
-        let name = *name;
         self.pos += 1;
         Ok(name)
     }
@@ -104,40 +89,43 @@ impl<'a> Parser<'a> {
         let Some(LexToken::Symbol(sym)) = self.lookahead() else {
             return false;
         };
-        if c != *sym {
+        if c != sym {
             return false;
         }
         self.pos += 1;
         true
     }
 
-    fn expect_symbol(&mut self, c: char) -> Result<(), (FilePos, ParseError)> {
+    fn expect_symbol(&mut self, c: char) -> PRes<()> {
         if !self.match_symbol(c) {
-            Err(self.unexpected_token_exact(LexToken::Symbol(c)))
+            Err(self.unexpected_token(TokenExpectation::ExactSymbol(LexToken::Symbol(c))))
         } else {
             Ok(())
         }
     }
 
-    fn set_ident_type(&mut self, ident: usize, kind: Identified) -> Result<(), (FilePos, ParseError)> {
+    fn set_ident_type(&mut self, ident: usize, kind: Identified) -> PRes<()> {
         let pos = self.curr_pos();
-        let old_kind = self.ident.get_index_mut(ident).ok_or((pos, ParseError::MissingIdentifier(ident)))?.1;
+        let old_kind = self
+            .ident
+            .get_index_mut(ident)
+            .ok_or(ParseError::MissingIdentifier(ident).attach_pos(pos))?
+            .1;
         if *old_kind != Identified::Unknown && *old_kind != kind {
-            let old_kind = *old_kind;
-            Err((pos, ParseError::ConflictingIdentifiers(ident, old_kind, kind)))
+            //let old_kind = *old_kind;
+            Err(ParseError::ConflictingIdentifiers(ident, *old_kind, kind).attach_pos(pos))
         } else {
             *old_kind = kind;
             Ok(())
         }
     }
 
-    fn parse_path(&mut self) -> PResult {
+    fn parse_path(&mut self) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
         if self.match_symbol('(') {
             while let Some(LexToken::Identifier(arg)) = self.lookahead() {
-                let arg = *arg;
                 self.set_ident_type(arg, Identified::LocalVar)?;
                 args.push(arg);
                 self.pos += 1;
@@ -147,16 +135,19 @@ impl<'a> Parser<'a> {
                 self.expect_symbol(',')?;
             }
         }
-        Ok(ParseToken::PathDef(name, args, self.parse_statements("endpath")?))
+        Ok(ParseToken::PathDef(
+            name,
+            args,
+            self.parse_statements(Keyword::Endpath)?,
+        ))
     }
 
-    fn parse_calc(&mut self) -> PResult {
+    fn parse_calc(&mut self) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         self.set_ident_type(name, Identified::Calc)?;
         let mut args = Vec::new();
         if self.match_symbol('(') {
             while let Some(LexToken::Identifier(arg)) = self.lookahead() {
-                let arg = *arg;
                 self.set_ident_type(arg, Identified::LocalVar)?;
                 args.push(arg);
                 self.pos += 1;
@@ -166,124 +157,117 @@ impl<'a> Parser<'a> {
                 self.expect_symbol(',')?;
             }
         }
-        let stmts = self.parse_statements("returns")?;
+        let stmts = self.parse_statements(Keyword::Returns)?;
         let ret = self.parse_expr()?;
-        self.expect_keyword("endcalc")?;
+        self.expect_keyword(Keyword::Endcalc)?;
         Ok(ParseToken::CalcDef(name, args, stmts, ret))
     }
 
-    fn parse_main(&mut self) -> PResult {
-        Ok(ParseToken::StartBlock(self.parse_statements("end")?))
+    fn parse_main(&mut self) -> PRes<ParseToken> {
+        Ok(ParseToken::StartBlock(self.parse_statements(Keyword::End)?))
     }
 
-    fn parse_stm(&mut self) -> Result<Statement, (FilePos, ParseError)> {
+    fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
         let Some(LexToken::Keyword(kw)) = self.lookahead() else {
-            return Err(self.unexpected_token_kind(LexToken::Keyword(0)));
+            return Err(self.unexpected_token(TokenExpectation::AnyKeyword));
         };
-        let kw = *kw;
+        let fp = self.curr_pos();
         self.pos += 1;
-        match crate::KEYWORDS[kw] {
-            "walk" => self.parse_walk(),
-            "jump" => self.parse_jump(),
-            "turn" => self.parse_turn(),
-            "direction" => Ok(Statement::Direction(self.parse_expr()?)),
-            "color" => self.parse_color(),
-            "clear" => Ok(Statement::Clear),
-            "stop" => Ok(Statement::Stop),
-            "finish" => Ok(Statement::Finish),
-            "path" => self.parse_path_call(),
-            "store" => {
+        Ok(match kw {
+            Keyword::Walk => self.parse_move(true),
+            Keyword::Jump => self.parse_move(false),
+            Keyword::Turn => self.parse_turn(),
+            Keyword::Direction => Ok(Statement::Direction(self.parse_expr()?)),
+            Keyword::Color => self.parse_color(),
+            Keyword::Clear => Ok(Statement::Clear),
+            Keyword::Stop => Ok(Statement::Stop),
+            Keyword::Finish => Ok(Statement::Finish),
+            Keyword::Path => self.parse_path_call(),
+            Keyword::Store => {
                 let expr = self.parse_expr()?;
-                self.expect_keyword("in")?;
+                self.expect_keyword(Keyword::In)?;
                 let var = self.parse_variable()?;
-                if let Variable::GlobalPreDef(id) = var {
-                    if !crate::PREDEF_VARS[id].1 {
-                        return Err((self.curr_pos(), ParseError::WriteToReadOnly(id)))
+                if let Variable::GlobalPreDef(pdv) = var {
+                    if !pdv.is_writeable() {
+                        return Err(ParseError::WriteToReadOnly(pdv).attach_pos(self.curr_pos()));
                     }
                 }
                 Ok(Statement::Store(expr, var))
-            },
-            "add" => {
-                let expr = self.parse_expr()?;
-                self.expect_keyword("to")?;
+            }
+            Keyword::Add => {
+                let val = self.parse_expr()?;
+                self.expect_keyword(Keyword::To)?;
                 let var = self.parse_variable()?;
-                Ok(Statement::Add(expr, var))
-            },
-            "sub" => {
-                let expr = self.parse_expr()?;
-                self.expect_keyword("from")?;
+                Ok(Statement::Calc { val, var, op: BiOperator::Add })
+            }
+            Keyword::Sub => {
+                let val = self.parse_expr()?;
+                self.expect_keyword(Keyword::From)?;
                 let var = self.parse_variable()?;
-                Ok(Statement::Sub(expr, var))
-            },
-            "mul" => {
+                Ok(Statement::Calc { val, var, op: BiOperator::Sub })
+            }
+            Keyword::Mul => {
                 let var = self.parse_variable()?;
-                self.expect_keyword("by")?;
-                let expr = self.parse_expr()?;
-                Ok(Statement::Mul(expr, var))
-            },
-            "div" => {
+                self.expect_keyword(Keyword::By)?;
+                let val = self.parse_expr()?;
+                Ok(Statement::Calc { val, var, op: BiOperator::Mul })
+            }
+            Keyword::Div => {
                 let var = self.parse_variable()?;
-                self.expect_keyword("by")?;
+                self.expect_keyword(Keyword::By)?;
+                let val = self.parse_expr()?;
+                Ok(Statement::Calc { val, var, op: BiOperator::Div })
+            }
+            Keyword::Mark => Ok(Statement::Mark),
+            Keyword::If => self.parse_if(),
+            Keyword::Do => {
                 let expr = self.parse_expr()?;
-                Ok(Statement::Div(expr, var))
-            },
-            "mark" => Ok(Statement::Mark),
-            "if" => self.parse_if(),
-            "do" => {
-                let expr = self.parse_expr()?;
-                self.expect_keyword("times")?;
-                Ok(Statement::DoLoop(expr, self.parse_statements("done")?))
-            },
-            "counter" => self.parse_counter(),
-            "while" => {
+                self.expect_keyword(Keyword::Times)?;
+                Ok(Statement::DoLoop(
+                    expr,
+                    self.parse_statements(Keyword::Done)?,
+                ))
+            }
+            Keyword::Counter => self.parse_counter(),
+            Keyword::While => {
                 let cond = self.parse_cond()?;
-                self.expect_keyword("do")?;
-                Ok(Statement::WhileLoop(cond, self.parse_statements("done")?))
-            },
-            "repeat" => {
-                let stmts = self.parse_statements("until")?;
+                self.expect_keyword(Keyword::Do)?;
+                Ok(Statement::WhileLoop(
+                    cond,
+                    self.parse_statements(Keyword::Done)?,
+                ))
+            }
+            Keyword::Repeat => {
+                let stmts = self.parse_statements(Keyword::Until)?;
                 Ok(Statement::RepeatLoop(self.parse_cond()?, stmts))
-            },
-            c => Err((self.curr_pos(), ParseError::UnknownStatement(c))),
-        }
+            }
+            c => Err(ParseError::UnknownStatement(c).attach_pos(self.curr_pos())),
+        }?
+        .attach_pos(fp))
     }
 
-    fn parse_walk(&mut self) -> Result<Statement, (FilePos, ParseError)> {
-        if self.match_keyword("home") {
-            Ok(Statement::WalkHome)
-        } else if self.match_keyword("mark") {
-            Ok(Statement::WalkMark)
-        } else if self.match_keyword("back") {
-            let expr = self.parse_expr()?;
-            Ok(Statement::WalkBack(expr))
+    fn parse_move(&mut self, draw: bool) -> PRes<Statement> {
+        if self.match_keyword(Keyword::Home) {
+            Ok(Statement::MoveHome(draw))
+        } else if self.match_keyword(Keyword::Mark) {
+            Ok(Statement::MoveMark(draw))
         } else {
-            let expr = self.parse_expr()?;
-            Ok(Statement::Walk(expr))
+            let back = self.match_keyword(Keyword::Back);
+            let dist = self.parse_expr()?;
+            Ok(Statement::MoveDist { dist, draw, back })
         }
     }
 
-    fn parse_jump(&mut self) -> Result<Statement, (FilePos, ParseError)> {
-        if self.match_keyword("home") {
-            Ok(Statement::JumpHome)
-        } else if self.match_keyword("mark") {
-            Ok(Statement::JumpMark)
-        } else if self.match_keyword("back") {
-            Ok(Statement::JumpBack(self.parse_expr()?))
+    fn parse_turn(&mut self) -> PRes<Statement> {
+        if self.match_keyword(Keyword::Left) {
+            Ok(Statement::Turn { left: true, by: self.parse_expr()? })
         } else {
-            Ok(Statement::Jump(self.parse_expr()?))
+            let _ = self.match_keyword(Keyword::Right); // ignore as it's optional
+            Ok(Statement::Turn { left: false, by: self.parse_expr()? })
         }
     }
 
-    fn parse_turn(&mut self) -> Result<Statement, (FilePos, ParseError)> {
-        if self.match_keyword("left") {
-            Ok(Statement::TurnLeft(self.parse_expr()?))
-        } else {
-            let _ = self.match_keyword("right"); // ignore as it's optional
-            Ok(Statement::TurnRight(self.parse_expr()?))
-        }
-    }
-
-    fn parse_color(&mut self) -> Result<Statement, (FilePos, ParseError)> {
+    fn parse_color(&mut self) -> PRes<Statement> {
         let expr_red = self.parse_expr()?;
         self.expect_symbol(',')?;
         let expr_green = self.parse_expr()?;
@@ -292,7 +276,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::Color(expr_red, expr_green, expr_blue))
     }
 
-    fn parse_path_call(&mut self) -> Result<Statement, (FilePos, ParseError)> {
+    fn parse_path_call(&mut self) -> PRes<Statement> {
         let name = self.match_identifier()?;
         self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
@@ -309,45 +293,56 @@ impl<'a> Parser<'a> {
         Ok(Statement::PathCall(name, args))
     }
 
-    fn parse_if(&mut self) -> Result<Statement, (FilePos, ParseError)> {
+    fn parse_if(&mut self) -> PRes<Statement> {
         let cond = self.parse_cond()?;
-        self.expect_keyword("then")?;
+        self.expect_keyword(Keyword::Then)?;
         let mut stmts = Vec::new();
         let has_else = loop {
-            if self.match_keyword("else") {
+            if self.match_keyword(Keyword::Else) {
                 break true;
             }
-            if self.match_keyword("endif") {
+            if self.match_keyword(Keyword::Endif) {
                 break false;
             }
             stmts.push(self.parse_stm()?);
         };
         if has_else {
-            Ok(Statement::IfElseBranch(cond, stmts, self.parse_statements("endif")?))
+            Ok(Statement::IfElseBranch(
+                cond,
+                stmts,
+                self.parse_statements(Keyword::Endif)?,
+            ))
         } else {
             Ok(Statement::IfBranch(cond, stmts))
         }
     }
 
-    fn parse_counter(&mut self) -> Result<Statement, (FilePos, ParseError)> {
-        let var = self.parse_variable()?;
-        self.expect_keyword("from")?;
-        let init = self.parse_expr()?;
-        let count_up = self.match_keyword("to");
-        if !count_up {
-            self.expect_keyword("downto")?;
+    fn parse_counter(&mut self) -> PRes<Statement> {
+        let counter = self.parse_variable()?;
+        self.expect_keyword(Keyword::From)?;
+        let from = self.parse_expr()?;
+        let up = self.match_keyword(Keyword::To);
+        if !up {
+            self.expect_keyword(Keyword::Downto)?;
         }
-        let target = self.parse_expr()?;
-        let step = if self.match_keyword("step") {
+        let to = self.parse_expr()?;
+        let step = if self.match_keyword(Keyword::Step) {
             Some(self.parse_expr()?)
         } else {
             None
         };
-        self.expect_keyword("do")?;
-        Ok(Statement::CounterLoop(var, init, count_up, target, step, self.parse_statements("done")?))
+        self.expect_keyword(Keyword::Do)?;
+        Ok(Statement::CounterLoop {
+            counter,
+            from,
+            up,
+            to,
+            step,
+            body: self.parse_statements(Keyword::Done)?,
+        })
     }
 
-    fn parse_statements(&mut self, end_key: &str) -> Result<Vec<Statement>, (FilePos, ParseError)> {
+    fn parse_statements(&mut self, end_key: Keyword) -> PRes<Statements> {
         let mut stmts = Vec::new();
         while !self.match_keyword(end_key) {
             stmts.push(self.parse_stm()?);
@@ -355,28 +350,31 @@ impl<'a> Parser<'a> {
         Ok(stmts)
     }
 
-    fn parse_variable(&mut self) -> Result<Variable, (FilePos, ParseError)> {
-        let nt = self.next_token().ok_or((self.curr_pos(), ParseError::UnexpectedEnd))?;
+    fn parse_variable(&mut self) -> PRes<Variable> {
+        let nt = self
+            .next_token()
+            .ok_or(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))?;
         match nt {
-            LexToken::GlobalVar(id, predef) => if predef {
-                Ok(Variable::GlobalPreDef(id))
-            } else {
+            LexToken::GlobalVar(id) => {
                 self.set_ident_type(id, Identified::GlobalVar)?;
                 Ok(Variable::Global(id))
-            },
+            }
+            LexToken::PredefVar(pdv) => Ok(Variable::GlobalPreDef(pdv)),
             LexToken::Identifier(id) => {
                 self.set_ident_type(id, Identified::LocalVar)?;
                 Ok(Variable::Local(id))
-            },
-            t => Err((self.curr_pos(), ParseError::UnexpectedTokenKind(t, LexToken::Identifier(0))))
+            }
+            t => Err(
+                ParseError::UnexpectedToken(t, TokenExpectation::AnyIdentifier)
+                    .attach_pos(self.curr_pos()),
+            ),
         }
     }
 
-    fn parse_expr(&mut self) -> Result<Expr, (FilePos, ParseError)> {
+    fn parse_expr(&mut self) -> Result<Expr, Pos<ParseError>> {
         let base_expr = self.parse_single_expr()?;
         let mut exprs = vec![('=', Some(base_expr))];
         while let Some(LexToken::Symbol(c)) = self.lookahead() {
-            let c = *c;
             if c == '+' || c == '-' || c == '*' || c == '/' || c == '^' {
                 self.pos += 1;
                 exprs.push((c, Some(self.parse_single_expr()?)));
@@ -389,7 +387,7 @@ impl<'a> Parser<'a> {
                 exprs[i - 1].1 = Some(Expr::BiOperation(
                     Box::new(exprs[i - 1].1.take().unwrap()),
                     BiOperator::Exp,
-                    Box::new(exprs[i].1.take().unwrap())
+                    Box::new(exprs[i].1.take().unwrap()),
                 ));
                 exprs[i].0 = '_';
             }
@@ -406,7 +404,7 @@ impl<'a> Parser<'a> {
             exprs[i + 1].1 = Some(Expr::BiOperation(
                 Box::new(exprs[i].1.take().unwrap()),
                 op,
-                Box::new(exprs[i + 1].1.take().unwrap())
+                Box::new(exprs[i + 1].1.take().unwrap()),
             ));
             exprs[i + 1].0 = exprs[i].0;
             exprs[i].0 = '_';
@@ -423,7 +421,7 @@ impl<'a> Parser<'a> {
             exprs[i + 1].1 = Some(Expr::BiOperation(
                 Box::new(exprs[i].1.take().unwrap()),
                 op,
-                Box::new(exprs[i + 1].1.take().unwrap())
+                Box::new(exprs[i + 1].1.take().unwrap()),
             ));
             exprs[i + 1].0 = exprs[i].0;
             exprs[i].0 = '_';
@@ -434,7 +432,7 @@ impl<'a> Parser<'a> {
         Ok(exprs[0].1.take().unwrap())
     }
 
-    fn parse_single_expr(&mut self) -> Result<Expr, (FilePos, ParseError)> {
+    fn parse_single_expr(&mut self) -> Result<Expr, Pos<ParseError>> {
         if self.match_symbol('(') {
             let expr = self.parse_expr()?;
             self.expect_symbol(')')?;
@@ -444,35 +442,32 @@ impl<'a> Parser<'a> {
             self.expect_symbol('|')?;
             Ok(Expr::Absolute(Box::new(expr)))
         } else if self.match_symbol('-') {
-            Ok(Expr::UnOperation(UnOperator::Neg, Box::new(self.parse_single_expr()?)))
+            Ok(Expr::Negate(
+                Box::new(self.parse_single_expr()?),
+            ))
         } else if let Some(LexToken::IntLiteral(i)) = self.lookahead() {
-            let f = *i as f64;
             self.pos += 1;
-            Ok(Expr::Const(f))
+            Ok(Expr::Const(i as f64))
         } else if let Some(LexToken::FloatLiteral(f)) = self.lookahead() {
-            let f = *f;
             self.pos += 1;
             Ok(Expr::Const(f))
-        } else if let Some(LexToken::GlobalVar(id, predef)) = self.lookahead() {
-            let (id, predef) = (*id, *predef);
+        } else if let Some(LexToken::GlobalVar(id)) = self.lookahead() {
             self.pos += 1;
-            Ok(Expr::Variable(if predef {
-                Variable::GlobalPreDef(id)
-            } else {
-                Variable::Global(id)
-            }))
-        } else if let Some(LexToken::Keyword(id)) = self.lookahead() {
-            let id = *id;
+            Ok(Expr::Variable(Variable::Global(id)))
+        } else if let Some(LexToken::PredefVar(pdv)) = self.lookahead() {
             self.pos += 1;
-            let (id, anz) = match crate::KEYWORDS[id] {
-                "sin" => (PredefFunc::Sin, 1),
-                "cos" => (PredefFunc::Cos, 1),
-                "tan" => (PredefFunc::Tan, 1),
-                "sqrt" => (PredefFunc::Sqrt, 1),
-                "rand" => (PredefFunc::Rand, 2),
+            Ok(Expr::Variable(Variable::GlobalPreDef(pdv)))
+        } else if let Some(LexToken::Keyword(kw)) = self.lookahead() {
+            self.pos += 1;
+            let (id, anz) = match kw {
+                Keyword::Sin => (PredefFunc::Sin, 1),
+                Keyword::Cos => (PredefFunc::Cos, 1),
+                Keyword::Tan => (PredefFunc::Tan, 1),
+                Keyword::Sqrt => (PredefFunc::Sqrt, 1),
+                Keyword::Rand => (PredefFunc::Rand, 2),
                 _ => {
-                    return Err(self.unexpected_token_kind(LexToken::Keyword(0)));
-                },
+                    return Err(self.unexpected_token(TokenExpectation::PredefFunc));
+                }
             };
             self.expect_symbol('(')?;
             let mut args = vec![self.parse_expr()?];
@@ -483,7 +478,6 @@ impl<'a> Parser<'a> {
             self.expect_symbol(')')?;
             Ok(Expr::FuncCall(id, args))
         } else if let Some(LexToken::Identifier(id)) = self.lookahead() {
-            let id = *id;
             self.pos += 1;
             if self.match_symbol('(') {
                 self.set_ident_type(id, Identified::Calc)?;
@@ -501,54 +495,63 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Variable(Variable::Local(id)))
             }
         } else {
-            Err((self.curr_pos(), ParseError::UnexpectedEnd))
+            Err(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))
         }
     }
 
-    fn parse_cond(&mut self) -> Result<Cond, (FilePos, ParseError)> {
+    fn parse_cond(&mut self) -> Result<Cond, Pos<ParseError>> {
+        #[derive(Debug, PartialEq, Clone, Copy)]
+        enum BoolOp {
+            And,
+            Or,
+            Eq,
+            Rem,
+        }
+
         let base_cond = self.parse_single_cond()?;
-        let mut conds = vec![('=', Some(base_cond))];
-        while let Some(LexToken::Keyword(id)) = self.lookahead() {
-            let id = *id;
-            if crate::KEYWORDS[id] == "and" || crate::KEYWORDS[id] == "or" {
-                self.pos += 1;
-                let c = crate::KEYWORDS[id].chars().next().unwrap();
-                conds.push((c, Some(self.parse_single_cond()?)));
-            } else {
-                break;
-            }
+        let mut conds = vec![(BoolOp::Eq, Some(base_cond))];
+        while let Some(LexToken::Keyword(kw)) = self.lookahead() {
+            let op = match kw {
+                Keyword::And => BoolOp::And,
+                Keyword::Or => BoolOp::Or,
+                _ => {
+                    break;
+                }
+            };
+            self.pos += 1;
+            conds.push((op, Some(self.parse_single_cond()?)));
         }
         for i in 0..conds.len() - 1 {
-            if conds[i + 1].0 != 'a' {
+            if conds[i + 1].0 != BoolOp::And {
                 continue;
             };
             conds[i + 1].1 = Some(Cond::And(
                 Box::new(conds[i].1.take().unwrap()),
-                Box::new(conds[i + 1].1.take().unwrap())
+                Box::new(conds[i + 1].1.take().unwrap()),
             ));
             conds[i + 1].0 = conds[i].0;
-            conds[i].0 = '_';
+            conds[i].0 = BoolOp::Rem;
         }
-        conds.retain(|(op, _)| *op != '_');
+        conds.retain(|(op, _)| *op != BoolOp::Rem);
         for i in 0..conds.len() - 1 {
-            if conds[i + 1].0 != 'o' {
+            if conds[i + 1].0 != BoolOp::Or {
                 continue;
             };
             conds[i + 1].1 = Some(Cond::Or(
                 Box::new(conds[i].1.take().unwrap()),
-                Box::new(conds[i + 1].1.take().unwrap())
+                Box::new(conds[i + 1].1.take().unwrap()),
             ));
             conds[i + 1].0 = conds[i].0;
-            conds[i].0 = '_';
+            conds[i].0 = BoolOp::Rem;
         }
-        conds.retain(|(op, _)| *op != '_');
+        conds.retain(|(op, _)| *op != BoolOp::Rem);
         assert_eq!(conds.len(), 1);
-        assert_eq!(conds[0].0, '=');
+        assert_eq!(conds[0].0, BoolOp::Eq);
         Ok(conds[0].1.take().unwrap())
     }
 
-    fn parse_single_cond(&mut self) -> Result<Cond, (FilePos, ParseError)> {
-        if self.match_keyword("not") {
+    fn parse_single_cond(&mut self) -> Result<Cond, Pos<ParseError>> {
+        if self.match_keyword(Keyword::Not) {
             Ok(Cond::Not(Box::new(self.parse_single_cond()?)))
         } else if self.match_symbol('(') {
             let boxed = self.parse_single_cond()?;
@@ -562,7 +565,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_cmp_operator(&mut self) -> Result<CmpOperator, (FilePos, ParseError)> {
+    fn parse_cmp_operator(&mut self) -> Result<CmpOperator, Pos<ParseError>> {
         if self.match_symbol('<') {
             if self.match_symbol('>') {
                 Ok(CmpOperator::UnEqual)
@@ -580,7 +583,7 @@ impl<'a> Parser<'a> {
         } else if self.match_symbol('=') {
             Ok(CmpOperator::Equal)
         } else {
-            Err(self.unexpected_token_kind(LexToken::Symbol('_')))
+            Err(self.unexpected_token(TokenExpectation::CmpOperator))
         }
     }
 
@@ -590,30 +593,22 @@ impl<'a> Parser<'a> {
 
     fn curr_pos(&self) -> FilePos {
         if self.eof() {
-            return self.ltokens[self.ltokens.len() - 1].0;
+            return self.ltokens[self.ltokens.len() - 1].get_pos();
         }
-        self.ltokens[self.pos].0
+        self.ltokens[self.pos].get_pos()
     }
 
-    fn unexpected_token_exact(&mut self, expected: LexToken) -> (FilePos, ParseError) {
+    fn unexpected_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {
         let pos = self.curr_pos();
         let Some(token) = self.next_token() else {
-            return (pos, ParseError::UnexpectedEnd);
+            return ParseError::UnexpectedEnd.attach_pos(pos);
         };
-        (pos, ParseError::UnexpectedTokenExact(token, expected))
-    }
-
-    fn unexpected_token_kind(&mut self, expected: LexToken) -> (FilePos, ParseError) {
-        let pos = self.curr_pos();
-        let Some(token) = self.next_token() else {
-            return (pos, ParseError::UnexpectedEnd);
-        };
-        (pos, ParseError::UnexpectedTokenKind(token, expected))
+        ParseError::UnexpectedToken(token, expected).attach_pos(pos)
     }
 }
 
 impl Iterator for Parser<'_> {
-    type Item = PResult;
+    type Item = PRes<ParseToken>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.parse_next()
@@ -622,48 +617,59 @@ impl Iterator for Parser<'_> {
 
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
-    UnexpectedTokenExact(LexToken, LexToken),
-    UnexpectedTokenKind(LexToken, LexToken),
-    UnknownStatement(&'static str),
+    UnexpectedToken(LexToken, TokenExpectation),
+    UnknownStatement(Keyword),
     UnexpectedEnd,
     MissingIdentifier(usize),
     ConflictingIdentifiers(usize, Identified, Identified),
-    WriteToReadOnly(usize),
+    WriteToReadOnly(PredefVar),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TokenExpectation {
+    AnySymbol,
+    AnyKeyword,
+    BlockStart,
+    ExactKeyword(LexToken),
+    ExactSymbol(LexToken),
+    AnyIdentifier,
+    CmpOperator,
+    PredefFunc,
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    fn keyword(kw: &str) -> PInput {
-        (FilePos::new(0, 0), crate::KEYWORDS.iter().position(|&k| k == kw).map(|idx| LexToken::Keyword(idx)))
-    }
-
     #[test]
     fn if_branch() {
         let fp = FilePos::new(0, 0);
         let mut ident = IndexMap::<String, Identified>::new();
         ident.insert(String::from("a"), Identified::LocalVar);
-        let mut parse = Parser::new(&mut ident, vec![
-            keyword("if"),
-            (fp, Some(LexToken::Identifier(0))),
-            (fp, Some(LexToken::Symbol('<'))),
-            (fp, Some(LexToken::IntLiteral(2))),
-            keyword("then"),
-            keyword("stop"),
-            keyword("endif")
-        ]);
-        let stmt = parse.parse_stm().unwrap();
-        assert_eq!(stmt, Statement::IfBranch(
-            Cond::Cmp(
-                Box::new(Expr::Variable(Variable::Local(0))),
-                CmpOperator::Less,
-                Box::new(Expr::Const(2.0))
-            ),
+        let mut parse = Parser::new(
+            &mut ident,
             vec![
-                Statement::Stop
-            ]
-        ));
+                LexToken::Keyword(Keyword::If).attach_pos(fp),
+                LexToken::Identifier(0).attach_pos(fp),
+                LexToken::Symbol('<').attach_pos(fp),
+                LexToken::IntLiteral(2).attach_pos(fp),
+                LexToken::Keyword(Keyword::Then).attach_pos(fp),
+                LexToken::Keyword(Keyword::Stop).attach_pos(fp),
+                LexToken::Keyword(Keyword::Endif).attach_pos(fp),
+            ],
+        );
+        let stmt = parse.parse_stm().unwrap();
+        assert_eq!(
+            *stmt,
+            Statement::IfBranch(
+                Cond::Cmp(
+                    Box::new(Expr::Variable(Variable::Local(0))),
+                    CmpOperator::Less,
+                    Box::new(Expr::Const(2.0))
+                ),
+                vec![Statement::Stop.attach_pos(fp)]
+            )
+        );
     }
 
     #[test]
@@ -671,105 +677,113 @@ mod test {
         let fp = FilePos::new(0, 0);
         let mut ident = IndexMap::<String, Identified>::new();
         ident.insert(String::from("a"), Identified::LocalVar);
-        let mut parse = Parser::new(&mut ident, vec![
-            keyword("if"),
-            keyword("not"),
-            (fp, Some(LexToken::Identifier(0))),
-            (fp, Some(LexToken::Symbol('>'))),
-            (fp, Some(LexToken::Symbol('='))),
-            (fp, Some(LexToken::IntLiteral(2))),
-            keyword("then"),
-            keyword("stop"),
-            keyword("else"),
-            keyword("walk"),
-            (fp, Some(LexToken::IntLiteral(30))),
-            keyword("endif")
-        ]);
-        let stmt = parse.parse_stm().unwrap();
-        assert_eq!(stmt, Statement::IfElseBranch(
-            Cond::Not(Box::new(Cond::Cmp(
-                Box::new(Expr::Variable(Variable::Local(0))),
-                CmpOperator::GreaterEqual,
-                Box::new(Expr::Const(2.0))
-            ))),
+        let mut parse = Parser::new(
+            &mut ident,
             vec![
-                Statement::Stop
+                LexToken::Keyword(Keyword::If).attach_pos(fp),
+                LexToken::Keyword(Keyword::Not).attach_pos(fp),
+                LexToken::Identifier(0).attach_pos(fp),
+                LexToken::Symbol('>').attach_pos(fp),
+                LexToken::Symbol('=').attach_pos(fp),
+                LexToken::IntLiteral(2).attach_pos(fp),
+                LexToken::Keyword(Keyword::Then).attach_pos(fp),
+                LexToken::Keyword(Keyword::Stop).attach_pos(fp),
+                LexToken::Keyword(Keyword::Else).attach_pos(fp),
+                LexToken::Keyword(Keyword::Walk).attach_pos(fp),
+                LexToken::IntLiteral(30).attach_pos(fp),
+                LexToken::Keyword(Keyword::Endif).attach_pos(fp),
             ],
-            vec![
-                Statement::Walk(Expr::Const(30.0))
-            ]
-        ));
+        );
+        let stmt = parse.parse_stm().unwrap();
+        assert_eq!(
+            *stmt,
+            Statement::IfElseBranch(
+                Cond::Not(Box::new(Cond::Cmp(
+                    Box::new(Expr::Variable(Variable::Local(0))),
+                    CmpOperator::GreaterEqual,
+                    Box::new(Expr::Const(2.0))
+                ))),
+                vec![Statement::Stop.attach_pos(fp)],
+                vec![Statement::MoveDist {
+                    dist: Expr::Const(30.0),
+                    draw: true,
+                    back: false,
+                }.attach_pos(fp)]
+            )
+        );
     }
 
     #[test]
     fn unfinished_expression() {
         let fp = FilePos::new(0, 0);
         let mut ident = IndexMap::<String, Identified>::new();
-        let mut parse = Parser::new(&mut ident, vec![
-            (fp, Some(LexToken::IntLiteral(3))),
-            (fp, Some(LexToken::Symbol('+'))),
-        ]);
+        let mut parse = Parser::new(
+            &mut ident,
+            vec![
+                LexToken::IntLiteral(3).attach_pos(fp),
+                LexToken::Symbol('+').attach_pos(fp),
+            ],
+        );
         let res = parse.parse_expr();
-        assert_eq!(res, Err((fp, ParseError::UnexpectedEnd)));
+        assert_eq!(res, Err(ParseError::UnexpectedEnd.attach_pos(fp)));
     }
 
     #[test]
     fn nested_expr() {
         let fp = FilePos::new(0, 0);
         let mut ident = IndexMap::<String, Identified>::new();
-        let mut parse = Parser::new(&mut ident, vec![
-            (fp, Some(LexToken::IntLiteral(3))),
-            (fp, Some(LexToken::Symbol('+'))),
-            (fp, Some(LexToken::Symbol('|'))),
-            (fp, Some(LexToken::IntLiteral(2))),
-            (fp, Some(LexToken::Symbol('-'))),
-            (fp, Some(LexToken::Symbol('('))),
-            (fp, Some(LexToken::IntLiteral(5))),
-            (fp, Some(LexToken::Symbol('*'))),
-            (fp, Some(LexToken::IntLiteral(4))),
-            (fp, Some(LexToken::Symbol(')'))),
-            (fp, Some(LexToken::Symbol('|'))),
-            (fp, Some(LexToken::Symbol('^'))),
-            (fp, Some(LexToken::Symbol('('))),
-            (fp, Some(LexToken::IntLiteral(1))),
-            (fp, Some(LexToken::Symbol('+'))),
-            (fp, Some(LexToken::IntLiteral(2))),
-            (fp, Some(LexToken::Symbol('*'))),
-            (fp, Some(LexToken::IntLiteral(3))),
-            (fp, Some(LexToken::Symbol(')'))),
-        ]);//3+|2-(5*4)|^(1+2*3)
+        let mut parse = Parser::new(
+            &mut ident,
+            vec![
+                LexToken::IntLiteral(3).attach_pos(fp),
+                LexToken::Symbol('+').attach_pos(fp),
+                LexToken::Symbol('|').attach_pos(fp),
+                LexToken::IntLiteral(2).attach_pos(fp),
+                LexToken::Symbol('-').attach_pos(fp),
+                LexToken::Symbol('(').attach_pos(fp),
+                LexToken::IntLiteral(5).attach_pos(fp),
+                LexToken::Symbol('*').attach_pos(fp),
+                LexToken::IntLiteral(4).attach_pos(fp),
+                LexToken::Symbol(')').attach_pos(fp),
+                LexToken::Symbol('|').attach_pos(fp),
+                LexToken::Symbol('^').attach_pos(fp),
+                LexToken::Symbol('(').attach_pos(fp),
+                LexToken::IntLiteral(1).attach_pos(fp),
+                LexToken::Symbol('+').attach_pos(fp),
+                LexToken::IntLiteral(2).attach_pos(fp),
+                LexToken::Symbol('*').attach_pos(fp),
+                LexToken::IntLiteral(3).attach_pos(fp),
+                LexToken::Symbol(')').attach_pos(fp),
+            ],
+        ); //3+|2-(5*4)|^(1+2*3)
         let expr = parse.parse_expr().unwrap();
-        assert_eq!(expr, Expr::BiOperation(
-            Box::new(Expr::Const(3.0)),
-            BiOperator::Add,
-            Box::new(Expr::BiOperation(
-                Box::new(Expr::Absolute(
-                    Box::new(Expr::BiOperation(
+        assert_eq!(
+            expr,
+            Expr::BiOperation(
+                Box::new(Expr::Const(3.0)),
+                BiOperator::Add,
+                Box::new(Expr::BiOperation(
+                    Box::new(Expr::Absolute(Box::new(Expr::BiOperation(
                         Box::new(Expr::Const(2.0)),
                         BiOperator::Sub,
-                        Box::new(Expr::Bracket(
-                            Box::new(Expr::BiOperation(
-                                Box::new(Expr::Const(5.0)),
-                                BiOperator::Mul,
-                                Box::new(Expr::Const(4.0))
-                            ))
-                        ))
-                        
-                    ))
-                )),
-                BiOperator::Exp,
-                Box::new(Expr::Bracket(
-                    Box::new(Expr::BiOperation(
+                        Box::new(Expr::Bracket(Box::new(Expr::BiOperation(
+                            Box::new(Expr::Const(5.0)),
+                            BiOperator::Mul,
+                            Box::new(Expr::Const(4.0))
+                        ))))
+                    )))),
+                    BiOperator::Exp,
+                    Box::new(Expr::Bracket(Box::new(Expr::BiOperation(
                         Box::new(Expr::Const(1.0)),
                         BiOperator::Add,
                         Box::new(Expr::BiOperation(
-                            Box::new(Expr::Const(2.0)), 
+                            Box::new(Expr::Const(2.0)),
                             BiOperator::Mul,
                             Box::new(Expr::Const(3.0))
                         ))
-                    ))
+                    ))))
                 ))
-            ))
-        ));
+            )
+        );
     }
 }

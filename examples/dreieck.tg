@@ -1,0 +1,26 @@
+path frak(d,l)
+  if d >= 0 then
+    path frak(d - 1, l / 2)
+    walk l
+    path frak(d - 1, l / 2)
+    walk l
+    turn left 120
+    walk 2 * l
+    turn left 120
+    walk l
+    turn left 120
+    path frak(d - 1, l / 2)
+    turn right 120
+    walk l
+    turn left 120
+  endif
+endpath
+
+begin
+  jump back 16
+  turn left 90
+  jump back 14
+  turn right 90
+  path frak(5, 16)
+  stop
+end

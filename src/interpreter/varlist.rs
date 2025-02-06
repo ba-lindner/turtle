@@ -4,9 +4,7 @@ pub struct VarList {
 
 impl VarList {
     pub fn new() -> Self {
-        Self {
-            vars: Vec::new(),
-        }
+        Self { vars: Vec::new() }
     }
 
     pub fn get_var(&mut self, id: usize) -> f64 {
