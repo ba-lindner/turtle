@@ -1,6 +1,6 @@
 use std::process::Command;
 use clap::{Parser, Subcommand};
-use turtle::{TProgram, StepVariant};
+use turtle::TProgram;
 
 #[derive(Parser)]
 #[command(version)]
@@ -14,16 +14,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum TCommand {
     /// Start interpreter
-    Interpret {
+    Run {
         /// args passed to turtle
         #[arg(last = true)]
         args: Vec<String>,
     },
     /// Start debugger
     Debug {
-        /// set step size
-        #[arg(short, long, value_enum, default_value_t = StepVariant::Statement)]
-        step: StepVariant,
         /// set breakpoints in format line,column
         #[arg(short, long)]
         breakpoint: Vec<String>,
@@ -48,8 +45,8 @@ fn main() {
     let cli = Cli::parse();
     let prog = turtle::parse_file(&cli.file).unwrap();
     match cli.command {
-        TCommand::Interpret { args } => prog.interpret(&args),
-        TCommand::Debug { step, breakpoint: bp, args } => prog.debug(&args, step, &bp),
+        TCommand::Run { args } => prog.interpret(&args),
+        TCommand::Debug { breakpoint: bp, args } => prog.debug(&args, &bp),
         TCommand::Compile { debug, no_cache } => compile(prog, &cli.file, no_cache, debug),
         TCommand::Check => {}
     }

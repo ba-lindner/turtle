@@ -5,7 +5,7 @@ use std::path::Path;
 
 use indexmap::IndexMap;
 
-use crate::predef_vars::PredefVar;
+use crate::tokens::predef_vars::PredefVar;
 use crate::Positionable;
 use crate::{tokens::keywords::Keyword, FilePos, Identified, Pos};
 
@@ -60,7 +60,7 @@ impl<'a> Lexer<'a> {
             c if c.is_alphabetic() || c == '_' => self.match_identifier(),
             c => Ok(LexToken::Symbol(c)),
         };
-        Some(r.attach_pos(FilePos { line, column }))
+        Some(r.attach_pos(FilePos::new(line, column)))
     }
 
     fn match_num_literal(&mut self, c: char) -> Result<LexToken, LexError> {

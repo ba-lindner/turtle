@@ -1,25 +1,23 @@
-use std::{future::Future, pin::pin, sync::Arc, task::{Context, Poll, Wake, Waker}};
+use std::{
+    future::Future,
+    pin::pin,
+    rc::Rc,
+    sync::Arc,
+    task::{Context, Poll, Wake, Waker},
+};
 
-use clap::ValueEnum;
+use parking_lot::Mutex;
+use sdl2::keyboard::Keycode;
 
-use crate::{Cond, Expr, FilePos, Statement, Statements, TProgram};
+use crate::{
+    pos::Pos,
+    tokens::{Cond, Expr, Statement, Statements, StmtKind},
+    FilePos, TProgram,
+};
 
-use super::{turtle::Turtle, varlist::VarList, window::Window, FloatExt};
+use super::{turtle::Turtle, varlist::VarList};
 
 // have a cat
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
-pub enum StepVariant {
-    /// every statement
-    #[default]
-    Statement,
-    /// every turtle action
-    /// 
-    /// includes turns and jumps
-    Turtle,
-    /// every drawn line
-    Draw,
-}
 
 struct TurtleWaker;
 
@@ -42,102 +40,277 @@ impl Future for TurtleFuture {
     }
 }
 
-pub struct Debugger<'p, 'w> {
-    prog: &'p TProgram,
-    window: &'w Window,
-    turtle: Turtle<'w>,
-    step: StepVariant,
-    breakpoints: Vec<FilePos>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DbgAction {
+    BeforeStmt,
+    AfterStmt,
 }
 
-impl<'p, 'w> Debugger<'p, 'w> {
-    pub fn new(prog: &'p TProgram, window: &'w Window, args: &[String]) -> Self {
+pub struct Debugger<'p> {
+    prog: &'p TProgram,
+    turtle: Rc<Mutex<Turtle>>,
+    finished: Rc<Mutex<bool>>,
+    data: Rc<Mutex<DebugData<'p>>>,
+}
+
+struct DebugData<'s> {
+    last_pos: FilePos,
+    curr_pos: FilePos,
+    curr_stmt: Option<&'s Statement>,
+    action: DbgAction,
+}
+
+impl<'s> DebugData<'s> {
+    fn new() -> Self {
         Self {
-            prog,
-            window,
-            turtle: Turtle::new(window, args),
-            step: StepVariant::Statement,
-            breakpoints: Vec::new(),
+            last_pos: FilePos::default(),
+            curr_pos: FilePos::default(),
+            curr_stmt: None,
+            action: DbgAction::BeforeStmt,
         }
     }
 
-    pub fn step(&mut self, step: StepVariant) {
-        self.step = step;
+    fn update(&mut self, stmt: &'s Pos<Statement>) {
+        self.last_pos = self.curr_pos;
+        self.curr_pos = stmt.get_pos();
+        self.curr_stmt = Some(&**stmt);
+    }
+}
+
+impl<'p> Debugger<'p> {
+    pub fn new(prog: &'p TProgram, args: &[String], title: &str) -> Self {
+        Self {
+            prog,
+            turtle: Rc::new(Mutex::new(Turtle::new(title, args))),
+            finished: Rc::new(Mutex::new(false)),
+            data: Rc::new(Mutex::new(DebugData::new())),
+        }
     }
 
-    pub fn breakpoints(&mut self, breakpoints: &[String]) {
-        fn parse_pos(bp: &str) -> Option<FilePos> {
+    pub fn interpret(&mut self) {
+        let waker: Waker = Arc::new(TurtleWaker).into();
+        let mut ctx = Context::from_waker(&waker);
+        let mut fut = pin!(self.dbg_stmts(&self.prog.main));
+        while let Poll::Pending = fut.as_mut().poll(&mut ctx) {}
+    }
+
+    pub fn run(&mut self, bp: &[String]) {
+        // greet user
+        println!("turtle debugger v{}", env!("CARGO_PKG_VERSION"));
+        println!("press space to run, press h for help");
+
+        // inner items
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum DbgState {
+            Idle,
+            Running,
+            Step,
+            StepOver(usize),
+            SkipTurtle,
+            SkipDraw,
+        }
+
+        fn parse_pos(bp: &String) -> Option<FilePos> {
             let (line, col) = bp.split_once(",")?;
             Some(FilePos::new(line.parse().ok()?, col.parse().ok()?))
         }
 
-        for bp in breakpoints {
-            if let Some(pos) = parse_pos(bp) {
-                self.breakpoints.push(pos);
-            }
-        }
-    }
+        // clone `Rc`s
+        let turtle = Rc::clone(&self.turtle);
+        let finished = Rc::clone(&self.finished);
+        let data = Rc::clone(&self.data);
+        let prog = self.prog;
 
-    fn statement_finished(&self, kind: StepVariant, last_pos: FilePos, now_pos: FilePos) -> TurtleFuture {
-        for &bp in &self.breakpoints {
-            if last_pos < bp && bp <= now_pos {
-                return TurtleFuture(false);
-            }
-        }
-        TurtleFuture(self.step > kind)
-    }
+        // init debug state
+        let breakpoints: Vec<_> = bp.iter().filter_map(parse_pos).collect();
+        let mut state = DbgState::Idle;
+        let mut narrator = false;
 
-    pub fn run(&mut self) {
+        // async stuff
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
-        let window = self.window;
         let mut fut = pin!(self.dbg_stmts(&self.prog.main));
         while let Poll::Pending = fut.as_mut().poll(&mut ctx) {
-            window.wait_space_pressed();
+            // main debug loop (the `while` above)
+            // executed before and after each statement
+
+            if *finished.lock() {
+                return;
+            }
+
+            let action = data.lock().action;
+
+            if action == DbgAction::AfterStmt && narrator {
+                data.lock().curr_stmt.unwrap().narrate(&prog.idents);
+            }
+
+            // while used to wait for user interaction if required
+            let mut waiting_input = true;
+            while waiting_input {
+                let keys = match turtle.lock().window.keys_pressed() {
+                    Ok(codes) => codes,
+                    Err(super::window::ExitPressed) => return,
+                };
+
+                for key in &keys {
+                    match *key {
+                        Keycode::SPACE => {
+                            if state == DbgState::Idle {
+                                state = DbgState::Running;
+                            } else if state == DbgState::Running {
+                                state = DbgState::Idle;
+                            }
+                        }
+                        Keycode::S if state == DbgState::Idle => {
+                            state = DbgState::Step;
+                        }
+                        Keycode::O if state == DbgState::Idle => {
+                            state = DbgState::StepOver(turtle.lock().stack.len());
+                        }
+                        Keycode::T if state == DbgState::Idle => {
+                            state = DbgState::SkipTurtle;
+                        }
+                        Keycode::D if state == DbgState::Idle => {
+                            state = DbgState::SkipDraw;
+                        }
+                        Keycode::N => {
+                            narrator = !narrator;
+                        }
+                        Keycode::V => {
+                            turtle.lock().dump_vars(&prog.idents);
+                        }
+                        Keycode::P => {
+                            let func = turtle
+                                .lock()
+                                .stack
+                                .last()
+                                .unwrap()
+                                .0
+                                .map(|id| {
+                                    prog.idents
+                                        .get_index(id)
+                                        .expect("missing function name")
+                                        .0
+                                        .as_str()
+                                })
+                                .unwrap_or("main");
+                            println!("in function {func} at {}", data.lock().curr_pos);
+                        }
+                        Keycode::H => {
+                            println!("available commands:");
+                            println!("  SPACE - run / stop debugger");
+                            println!("  S     - execute single statement");
+                            println!("  O     - step over path / calc call");
+                            println!("  T     - skip until next turtle action");
+                            println!("  D     - skip until next drawn line");
+                            println!("  N     - toggle narrator");
+                            println!("  V     - dump variables");
+                            println!("  P     - print current position");
+                            println!("  H     - show this help");
+                        }
+                        _ => {}
+                    }
+                }
+
+                // handle breakpoints
+                if state == DbgState::Running && action == DbgAction::BeforeStmt && breakpoints.len() > 0 {
+                    let (prev, curr) = {
+                        let data = data.lock();
+                        (data.last_pos, data.curr_pos)
+                    };
+                    for &bp in &breakpoints {
+                        if prev < bp && bp <= curr {
+                            state = DbgState::Idle;
+                            break;
+                        }
+                    }
+                }
+
+                // better default
+                waiting_input = false;
+                match state {
+                    DbgState::Idle => {
+                        if action == DbgAction::BeforeStmt {
+                            tick();
+                            waiting_input = true;
+                        }
+                    }
+                    DbgState::Running => {}
+                    DbgState::Step => {
+                        if action == DbgAction::AfterStmt {
+                            state = DbgState::Idle;
+                        }
+                    }
+                    DbgState::StepOver(depth) => {
+                        if action == DbgAction::AfterStmt && turtle.lock().stack.len() == depth {
+                            state = DbgState::Idle;
+                        }
+                    }
+                    DbgState::SkipTurtle => {
+                        if action == DbgAction::AfterStmt
+                            && data.lock().curr_stmt.unwrap().kind() >= StmtKind::Turtle
+                        {
+                            state = DbgState::Idle;
+                        }
+                    }
+                    DbgState::SkipDraw => {
+                        if action == DbgAction::AfterStmt
+                            && data.lock().curr_stmt.unwrap().kind() == StmtKind::Draw
+                        {
+                            state = DbgState::Idle;
+                        }
+                    }
+                }
+            }
         }
     }
 
-    async fn dbg_stmts(&mut self, stmts: &Statements) {
+    async fn dbg_stmts(&mut self, stmts: &'p Statements) {
         let fut = async {
-            let mut last_pos = FilePos::default();
+            self.data.lock().last_pos = FilePos::default();
             for stmt in stmts {
+                // before
+                {
+                    let mut data = self.data.lock();
+                    data.update(stmt);
+                    data.action = DbgAction::BeforeStmt;
+                }
+                TurtleFuture(false).await;
+                // execute
                 self.dbg_stmt(stmt).await;
-                let now_pos = stmt.get_pos();
-                self.statement_finished(stmt.kind(), last_pos, now_pos).await;
-                last_pos = now_pos;
+                // after
+                self.data.lock().action = DbgAction::AfterStmt;
+                TurtleFuture(false).await;
             }
         };
         Box::pin(fut).await
     }
 
-    async fn dbg_stmt(&mut self, stmt: &Statement) {
+    async fn dbg_stmt(&mut self, stmt: &'p Statement) {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
-                self.turtle.move_dist(dist, *back, *draw);
+                self.turtle.lock().move_dist(dist, *back, *draw);
             }
-            Statement::MoveHome(draw) => self.turtle.move_home(*draw),
+            Statement::MoveHome(draw) => self.turtle.lock().move_home(*draw),
             Statement::Turn { left, by } => {
                 let angle = self.dbg_expr(by).await;
-                self.turtle.set_dir(self.turtle.get_dir() + angle.neg(*left));
+                let new_dir = self.turtle.lock().dir + if *left { -angle } else { angle };
+                self.turtle.lock().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
                 let new_dir = self.dbg_expr(expr).await;
-                self.turtle.set_dir(new_dir);
+                self.turtle.lock().set_dir(new_dir);
             }
             Statement::Color(ex1, ex2, ex3) => {
                 let r = self.dbg_expr(ex1).await;
                 let g = self.dbg_expr(ex2).await;
                 let b = self.dbg_expr(ex3).await;
-                self.turtle.set_col(r, g, b);
+                self.turtle.lock().set_col(r, g, b);
             }
-            Statement::Clear => self.turtle.clear(),
-            Statement::Stop => {
-                // self.stopped = true;
-                println!("halt and catch fire");
-                self.turtle.wait_exit();
-            }
-            Statement::Finish => {/*self.stopped = true,*/}
+            Statement::Clear => self.turtle.lock().window.clear(),
+            Statement::Stop => self.stop(true).await,
+            Statement::Finish => self.stop(false).await,
             Statement::PathCall(id, args) => {
                 let path = self.prog.get_path(*id).expect("should be caught by parser");
                 let args = self.dbg_args(args).await;
@@ -146,21 +319,21 @@ impl<'p, 'w> Debugger<'p, 'w> {
                 for (i, arg) in args.iter().enumerate() {
                     vars.set_var(path.args[i], *arg);
                 }
-                self.turtle.push_stack(vars);
+                self.turtle.lock().stack.push((Some(*id), vars));
                 self.dbg_stmts(&path.body).await;
-                self.turtle.pop_stack();
+                self.turtle.lock().stack.pop();
             }
             Statement::Store(expr, var) => {
                 let val = self.dbg_expr(expr).await;
-                self.turtle.set_var(var, val);
+                self.turtle.lock().set_var(var, val);
             }
             Statement::Calc { var, val, op } => {
-                let lhs = self.turtle.get_var(var);
+                let lhs = self.turtle.lock().get_var(var);
                 let rhs = self.dbg_expr(val).await;
-                self.turtle.set_var(var, op.calc(lhs, rhs));
+                self.turtle.lock().set_var(var, op.calc(lhs, rhs));
             }
-            Statement::Mark => self.turtle.new_mark(),
-            Statement::MoveMark(draw) => self.turtle.move_mark(*draw),
+            Statement::Mark => self.turtle.lock().new_mark(),
+            Statement::MoveMark(draw) => self.turtle.lock().move_mark(*draw),
             Statement::IfBranch(cond, stmts) => {
                 if self.dbg_cond(cond).await {
                     self.dbg_stmts(stmts).await;
@@ -179,18 +352,26 @@ impl<'p, 'w> Debugger<'p, 'w> {
                     self.dbg_stmts(stmts).await;
                 }
             }
-            Statement::CounterLoop { counter, from, up, to, step, body } => {
+            Statement::CounterLoop {
+                counter,
+                from,
+                up,
+                to,
+                step,
+                body,
+            } => {
                 let init = self.dbg_expr(from).await;
                 let end = self.dbg_expr(to).await;
-                let step = match step {
-                    Some(expr) => self.dbg_expr(expr).await,
-                    None => 1.0,
-                }.neg(!*up);
-                self.turtle.set_var(counter, init);
-                while *up != (self.turtle.get_var(counter) >= end) {
+                let step = if *up { 1.0 } else { -1.0 }
+                    * match step {
+                        Some(expr) => self.dbg_expr(expr).await,
+                        None => 1.0,
+                    };
+                self.turtle.lock().set_var(counter, init);
+                while *up != (self.turtle.lock().get_var(counter) >= end) {
                     self.dbg_stmts(body).await;
-                    let next_val = self.turtle.get_var(counter) + step;
-                    self.turtle.set_var(counter, next_val);
+                    let next_val = self.turtle.lock().get_var(counter) + step;
+                    self.turtle.lock().set_var(counter, next_val);
                 }
             }
             Statement::WhileLoop(cond, stmts) => {
@@ -200,7 +381,7 @@ impl<'p, 'w> Debugger<'p, 'w> {
             }
             Statement::RepeatLoop(cond, stmts) => {
                 self.dbg_stmts(stmts).await;
-                while self.dbg_cond(cond).await {
+                while !self.dbg_cond(cond).await {
                     self.dbg_stmts(stmts).await;
                 }
             }
@@ -211,15 +392,13 @@ impl<'p, 'w> Debugger<'p, 'w> {
         let fut = async {
             match expr {
                 Expr::Const(val) => *val,
-                Expr::Variable(var) => self.turtle.get_var(var),
+                Expr::Variable(var) => self.turtle.lock().get_var(var),
                 Expr::BiOperation(lhs, op, rhs) => {
                     let lhs = self.dbg_expr(lhs).await;
                     let rhs = self.dbg_expr(rhs).await;
                     op.calc(lhs, rhs)
                 }
-                Expr::Negate(expr) => {
-                    -self.dbg_expr(expr).await
-                }
+                Expr::Negate(expr) => -self.dbg_expr(expr).await,
                 Expr::Absolute(expr) => self.dbg_expr(expr).await.abs(),
                 Expr::Bracket(expr) => self.dbg_expr(expr).await,
                 Expr::FuncCall(pdf, args) => {
@@ -227,17 +406,20 @@ impl<'p, 'w> Debugger<'p, 'w> {
                     pdf.calc(&args)
                 }
                 Expr::CalcCall(id, args) => {
-                    let calc = self.prog.get_calc(*id).expect("should be checked by parser");
+                    let calc = self
+                        .prog
+                        .get_calc(*id)
+                        .expect("should be checked by parser");
                     let args = self.dbg_args(args).await;
                     assert_eq!(calc.args.len(), args.len());
                     let mut vars = VarList::new();
                     for (i, arg) in args.iter().enumerate() {
                         vars.set_var(calc.args[i], *arg);
                     }
-                    self.turtle.push_stack(vars);
+                    self.turtle.lock().stack.push((Some(*id), vars));
                     self.dbg_stmts(&calc.body).await;
                     let res = self.dbg_expr(&calc.ret).await;
-                    self.turtle.pop_stack();
+                    self.turtle.lock().stack.pop();
                     res
                 }
             }
@@ -254,12 +436,8 @@ impl<'p, 'w> Debugger<'p, 'w> {
                     let rhs = self.dbg_expr(rhs).await;
                     op.compare(lhs, rhs)
                 }
-                Cond::And(lhs, rhs) => {
-                    self.dbg_cond(lhs).await && self.dbg_cond(rhs).await
-                }
-                Cond::Or(lhs, rhs) => {
-                    self.dbg_cond(lhs).await || self.dbg_cond(rhs).await
-                }
+                Cond::And(lhs, rhs) => self.dbg_cond(lhs).await && self.dbg_cond(rhs).await,
+                Cond::Or(lhs, rhs) => self.dbg_cond(lhs).await || self.dbg_cond(rhs).await,
                 Cond::Not(sub) => !self.dbg_cond(sub).await,
             }
         };
@@ -273,4 +451,20 @@ impl<'p, 'w> Debugger<'p, 'w> {
         }
         res
     }
+
+    async fn stop(&mut self, wait: bool) {
+        *self.finished.lock() = true;
+        if wait {
+            println!("halt and catch fire");
+            while self.turtle.lock().window.keys_pressed().is_ok() {
+                tick();
+            }
+        }
+        // yield control
+        TurtleFuture(false).await;
+    }
+}
+
+fn tick() {
+    std::thread::sleep(std::time::Duration::from_millis(20));
 }

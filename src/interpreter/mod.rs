@@ -1,8 +1,7 @@
 use sdl2::pixels::Color;
 use turtle::Turtle;
-use window::Window;
 
-use crate::{BiOperator, Cond, Expr, Statement, Statements, TProgram, TurtleError};
+use crate::{tokens::{BiOperator, Cond, Expr, Statement, Statements}, TProgram, TurtleError};
 
 use self::varlist::VarList;
 
@@ -18,18 +17,18 @@ const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 const START_COLOR: Color = Color::YELLOW;
 
-pub struct Interpreter<'p, 'w> {
+pub struct Interpreter<'p> {
     prog: &'p TProgram,
     stopped: bool,
-    turtle: Turtle<'w>,
+    turtle: Turtle,
 }
 
-impl<'p, 'w> Interpreter<'p, 'w> {
-    pub fn new(prog: &'p TProgram, window: &'w Window, args: &[String]) -> Self {
+impl<'p> Interpreter<'p> {
+    pub fn new(prog: &'p TProgram, args: &[String]) -> Self {
         Self {
             prog,
             stopped: false,
-            turtle: Turtle::new(window, args),
+            turtle: Turtle::new("Turtle Interpreter", args),
         }
     }
 
@@ -59,7 +58,7 @@ impl<'p, 'w> Interpreter<'p, 'w> {
             Statement::MoveHome(draw) => self.turtle.move_home(*draw),
             Statement::Turn { left, by } => {
                 let angle = self.eval_expr(by)?;
-                self.turtle.set_dir(self.turtle.get_dir() + angle.neg(*left));
+                self.turtle.set_dir(self.turtle.dir + angle.neg(*left));
             }
             Statement::Direction(expr) => {
                 let new_dir = self.eval_expr(expr)?;
@@ -71,7 +70,7 @@ impl<'p, 'w> Interpreter<'p, 'w> {
                 let b = self.eval_expr(ex3)?;
                 self.turtle.set_col(r, g, b);
             }
-            Statement::Clear => self.turtle.clear(),
+            Statement::Clear => self.turtle.window.clear(),
             Statement::Stop => {
                 self.stopped = true;
                 println!("halt and catch fire");
@@ -86,9 +85,9 @@ impl<'p, 'w> Interpreter<'p, 'w> {
                 for (i, arg) in args.iter().enumerate() {
                     vars.set_var(path.args[i], *arg);
                 }
-                self.turtle.push_stack(vars);
+                self.turtle.stack.push((Some(*id), vars));
                 self.itp_stmts(&path.body)?;
-                self.turtle.pop_stack();
+                self.turtle.stack.pop();
             }
             Statement::Store(expr, var) => {
                 let val = self.eval_expr(expr)?;
@@ -127,7 +126,7 @@ impl<'p, 'w> Interpreter<'p, 'w> {
                 let step = match step {
                     Some(expr) => self.eval_expr(expr)?,
                     None => 1.0,
-                }.neg(*up);
+                }.neg(!*up);
                 self.turtle.set_var(counter, init);
                 while *up != (self.turtle.get_var(counter) >= end) && !self.stopped {
                     self.itp_stmts(body)?;
@@ -179,10 +178,10 @@ impl<'p, 'w> Interpreter<'p, 'w> {
                 for (i, arg) in args.iter().enumerate() {
                     vars.set_var(calc.args[i], *arg);
                 }
-                self.turtle.push_stack(vars);
+                self.turtle.stack.push((Some(*id), vars));
                 self.itp_stmts(&calc.body)?;
                 let res = self.eval_expr(&calc.ret)?;
-                self.turtle.pop_stack();
+                self.turtle.stack.pop();
                 res
             }
         })

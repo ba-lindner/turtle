@@ -1,16 +1,14 @@
 use crate::{
     lexer::LexToken,
-    tokens::{keywords::Keyword, *},
+    tokens::{predef_vars::PredefVar, keywords::Keyword, *},
     FilePos, Identified, Pos, Positionable,
 };
 use indexmap::IndexMap;
 
-use self::predef_vars::PredefVar;
-
-// Aufwand: bisher ~5h
-
+/// Result of parsing a specific node
 type PRes<T> = Result<T, Pos<ParseError>>;
 
+/// Turtle Parser
 pub struct Parser<'a> {
     ltokens: Vec<Pos<LexToken>>,
     pos: usize,
@@ -27,9 +25,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
-        if self.eof() {
-            return None;
-        }
+        self.eof()?;
         Some(if self.match_keyword(Keyword::Path) {
             self.parse_path()
         } else if self.match_keyword(Keyword::Calculation) {
@@ -42,31 +38,24 @@ impl<'a> Parser<'a> {
     }
 
     fn lookahead(&self) -> Option<LexToken> {
-        if self.eof() {
-            None
-        } else {
-            Some(*self.ltokens[self.pos])
-        }
+        self.eof()?;
+        Some(*self.ltokens[self.pos])
     }
 
     fn next_token(&mut self) -> Option<LexToken> {
-        if self.eof() {
-            None
-        } else {
-            self.pos += 1;
-            Some(*self.ltokens[self.pos - 1])
-        }
+        self.eof()?;
+        self.pos += 1;
+        Some(*self.ltokens[self.pos - 1])
     }
 
     fn match_keyword(&mut self, kw: Keyword) -> bool {
-        let Some(LexToken::Keyword(found)) = self.lookahead() else {
-            return false;
-        };
-        if found != kw {
-            return false;
+        match self.lookahead() {
+            Some(LexToken::Keyword(found)) if found == kw => {
+                self.pos += 1;
+                true
+            }
+            _ => false,
         }
-        self.pos += 1;
-        true
     }
 
     fn expect_keyword(&mut self, kw: Keyword) -> PRes<()> {
@@ -86,14 +75,13 @@ impl<'a> Parser<'a> {
     }
 
     fn match_symbol(&mut self, c: char) -> bool {
-        let Some(LexToken::Symbol(sym)) = self.lookahead() else {
-            return false;
-        };
-        if c != sym {
-            return false;
+        match self.lookahead() {
+            Some(LexToken::Symbol(found)) if found == c => {
+                self.pos += 1;
+                true
+            }
+            _ => false,
         }
-        self.pos += 1;
-        true
     }
 
     fn expect_symbol(&mut self, c: char) -> PRes<()> {
@@ -112,7 +100,6 @@ impl<'a> Parser<'a> {
             .ok_or(ParseError::MissingIdentifier(ident).attach_pos(pos))?
             .1;
         if *old_kind != Identified::Unknown && *old_kind != kind {
-            //let old_kind = *old_kind;
             Err(ParseError::ConflictingIdentifiers(ident, *old_kind, kind).attach_pos(pos))
         } else {
             *old_kind = kind;
@@ -194,30 +181,10 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Statement::Store(expr, var))
             }
-            Keyword::Add => {
-                let val = self.parse_expr()?;
-                self.expect_keyword(Keyword::To)?;
-                let var = self.parse_variable()?;
-                Ok(Statement::Calc { val, var, op: BiOperator::Add })
-            }
-            Keyword::Sub => {
-                let val = self.parse_expr()?;
-                self.expect_keyword(Keyword::From)?;
-                let var = self.parse_variable()?;
-                Ok(Statement::Calc { val, var, op: BiOperator::Sub })
-            }
-            Keyword::Mul => {
-                let var = self.parse_variable()?;
-                self.expect_keyword(Keyword::By)?;
-                let val = self.parse_expr()?;
-                Ok(Statement::Calc { val, var, op: BiOperator::Mul })
-            }
-            Keyword::Div => {
-                let var = self.parse_variable()?;
-                self.expect_keyword(Keyword::By)?;
-                let val = self.parse_expr()?;
-                Ok(Statement::Calc { val, var, op: BiOperator::Div })
-            }
+            Keyword::Add => self.parse_calc_stm(Keyword::To, BiOperator::Add),
+            Keyword::Sub => self.parse_calc_stm(Keyword::From, BiOperator::Sub),
+            Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul),
+            Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div),
             Keyword::Mark => Ok(Statement::Mark),
             Keyword::If => self.parse_if(),
             Keyword::Do => {
@@ -293,6 +260,13 @@ impl<'a> Parser<'a> {
         Ok(Statement::PathCall(name, args))
     }
 
+    fn parse_calc_stm(&mut self, mid: Keyword, op: BiOperator) -> PRes<Statement> {
+        let var = self.parse_variable()?;
+        self.expect_keyword(mid)?;
+        let val = self.parse_expr()?;
+        Ok(Statement::Calc { val, var, op })
+    }
+
     fn parse_if(&mut self) -> PRes<Statement> {
         let cond = self.parse_cond()?;
         self.expect_keyword(Keyword::Then)?;
@@ -351,10 +325,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_variable(&mut self) -> PRes<Variable> {
-        let nt = self
+        let token = self
             .next_token()
             .ok_or(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))?;
-        match nt {
+        match token {
             LexToken::GlobalVar(id) => {
                 self.set_ident_type(id, Identified::GlobalVar)?;
                 Ok(Variable::Global(id))
@@ -587,15 +561,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eof(&self) -> bool {
-        self.pos == self.ltokens.len()
+    fn eof(&self) -> Option<()> {
+        (self.pos < self.ltokens.len()).then_some(())
     }
 
     fn curr_pos(&self) -> FilePos {
-        if self.eof() {
-            return self.ltokens[self.ltokens.len() - 1].get_pos();
-        }
-        self.ltokens[self.pos].get_pos()
+        self.ltokens[self.pos.clamp(0, self.ltokens.len() - 1)].get_pos()
     }
 
     fn unexpected_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {

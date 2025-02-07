@@ -1,8 +1,9 @@
 use std::io::Write;
 
-use crate::{
-    predef_vars::PredefVar, BiOperator, Cond, Expr, Statement, Statements, TProgram, Variable,
+use crate::tokens::{
+    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Statements, Variable
 };
+use crate::TProgram;
 
 use self::context::Context;
 
@@ -256,17 +257,17 @@ impl CComp {
             Expr::Bracket(sub) => format!("({})", self.comp_expr(ctx, sub)),
             Expr::FuncCall(fnname, args) => {
                 let args = self.comp_args(args, |e| self.comp_expr(ctx, e));
-                let transform_angle = match fnname {
-                    crate::PredefFunc::Sin => true,
-                    crate::PredefFunc::Cos => true,
-                    crate::PredefFunc::Tan => true,
-                    crate::PredefFunc::Sqrt => true,
-                    crate::PredefFunc::Rand => false,
+                let (transform_angle, c_func) = match fnname {
+                    PredefFunc::Sin => (true, "sin"),
+                    PredefFunc::Cos => (true, "cos"),
+                    PredefFunc::Tan => (true, "tan"),
+                    PredefFunc::Sqrt => (false, "sqrt"),
+                    PredefFunc::Rand => (false, "__ttl_rand"),
                 };
                 if transform_angle {
-                    format!("{fnname}(({args}) * M_PI / 180.0)")
+                    format!("{c_func}(({args}) * M_PI / 180.0)")
                 } else {
-                    format!("{fnname}({args})")
+                    format!("{c_func}({args})")
                 }
             }
             Expr::CalcCall(id, args) => format!(

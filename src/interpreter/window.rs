@@ -1,11 +1,11 @@
-use std::sync::Mutex;
-
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Point, render::Canvas, EventPump};
 
 pub struct Window {
-    canvas: Mutex<Canvas<sdl2::video::Window>>,
-    events: Mutex<EventPump>,
+    canvas: Canvas<sdl2::video::Window>,
+    events: EventPump,
 }
+
+pub struct ExitPressed;
 
 impl Window {
     pub fn new(title: &str) -> Self {
@@ -19,57 +19,53 @@ impl Window {
         let mut canvas = window.into_canvas().build().unwrap();
         let events = sdl_context.event_pump().unwrap();
         canvas.set_draw_color(super::START_COLOR);
-        let res = Self {
-            canvas: Mutex::new(canvas),
-            events: Mutex::new(events),
+        let mut res = Self {
+            canvas,
+            events,
         };
         res.clear();
         res
     }
 
-    pub fn clear(&self) {
-        let mut canvas = self.canvas.lock().unwrap();
-        let col = canvas.draw_color();
-        canvas.set_draw_color(Color::BLACK);
-        canvas.clear();
-        canvas.present();
-        canvas.set_draw_color(col);
+    pub fn clear(&mut self) {
+        let col = self.canvas.draw_color();
+        self.canvas.set_draw_color(Color::BLACK);
+        self.canvas.clear();
+        self.canvas.present();
+        self.canvas.set_draw_color(col);
     }
 
-    pub fn set_col(&self, col: Color) {
-        self.canvas.lock().unwrap().set_draw_color(col);
+    pub fn set_col(&mut self, col: Color) {
+        self.canvas.set_draw_color(col);
     }
 
-    pub fn draw_line(&self, start: Point, end: Point) {
-        let mut canvas = self.canvas.lock().unwrap();
-        canvas.draw_line(start, end).unwrap();
-        canvas.present();
+    pub fn draw_line(&mut self, start: Point, end: Point) {
+        self.canvas.draw_line(start, end).unwrap();
+        self.canvas.present();
     }
 
-    pub fn exit_pressed(&self) -> bool {
-        let mut events = self.events.lock().unwrap();
-        while let Some(evt) = events.poll_event() {
+    pub fn keys_pressed(&mut self) -> Result<Vec<Keycode>, ExitPressed> {
+        let mut res = Vec::new();
+        while let Some(evt) = self.events.poll_event() {
+            match evt {
+                Event::KeyDown { keycode: Some(kc), .. } => {
+                    res.push(kc);
+                }
+                Event::Quit { .. } => {
+                    return Err(ExitPressed);
+                }
+                _ => {}
+            }
+        }
+        Ok(res)
+    }
+
+    pub fn exit_pressed(&mut self) -> bool {
+        while let Some(evt) = self.events.poll_event() {
             if let Event::Quit { timestamp: _ } = evt {
                 return true;
             }
         }
         false
-    }
-
-    pub fn wait_space_pressed(&self) -> bool {
-        let mut events = self.events.lock().unwrap();
-        loop {
-            while let Some(evt) = events.poll_event() {
-                match evt {
-                    Event::KeyDown { keycode: Some(Keycode::SPACE), .. } => {
-                        return true;
-                    }
-                    Event::Quit { .. } => {
-                        return false;
-                    }
-                    _ => {}
-                }
-            }
-        }
     }
 }

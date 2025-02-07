@@ -1,19 +1,25 @@
-use std::fmt::Display;
-
-pub use ccomp::CComp;
 use indexmap::IndexMap;
-use interpreter::window::Window;
-pub use interpreter::{debugger::{Debugger, StepVariant}, Interpreter};
+
 use lexer::{LResult, LexError, LexToken, Lexer};
 use parser::{ParseError, Parser};
-use tokens::*;
+use pos::*;
+use prog::{CalcDef, PathDef};
+use tokens::{ParseToken, Statements};
+
+pub use ccomp::CComp;
+pub use prog::TProgram;
+pub use interpreter::{debugger::Debugger, Interpreter};
 
 mod ccomp;
 mod interpreter;
 mod lexer;
 mod parser;
 //mod sr_parser;
-mod tokens;
+pub mod tokens;
+mod prog;
+mod pos;
+
+pub type SymbolTable = IndexMap<String, Identified>;
 
 /// Types of things that have an identifier
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -23,44 +29,6 @@ pub enum Identified {
     Calc,
     GlobalVar,
     LocalVar,
-}
-
-/// A full and valid turtle program.
-#[derive(Debug)]
-pub struct TProgram {
-    pub paths: Vec<PathDef>,
-    pub calcs: Vec<CalcDef>,
-    pub main: Statements,
-    pub idents: IndexMap<String, Identified>,
-}
-
-impl TProgram {
-    fn get_path(&self, name: usize) -> Result<&PathDef, TurtleError> {
-        self.paths
-            .iter()
-            .find(|path| path.name == name)
-            .ok_or(TurtleError::MissingDefinition(name))
-    }
-
-    fn get_calc(&self, name: usize) -> Result<&CalcDef, TurtleError> {
-        self.calcs
-            .iter()
-            .find(|calc| calc.name == name)
-            .ok_or(TurtleError::MissingDefinition(name))
-    }
-
-    pub fn interpret(&self, args: &[String]) {
-        let window = Window::new("Turtle Interpreter");
-        Interpreter::new(self, &window, args).run().unwrap();
-    }
-
-    pub fn debug(&self, args: &[String], step: StepVariant, bp: &[String]) {
-        let window = Window::new("Turtle Debugger");
-        let mut dbg = Debugger::new(self, &window, args);
-        dbg.step(step);
-        dbg.breakpoints(bp);
-        dbg.run();
-    }
 }
 
 /// Things that can go wrong.
@@ -90,116 +58,6 @@ impl From<std::io::Error> for TurtleError {
 impl From<Pos<ParseError>> for TurtleError {
     fn from(value: Pos<ParseError>) -> Self {
         Self::ParseError(value)
-    }
-}
-
-/// Path definition in turtle program
-#[derive(Debug)]
-pub struct PathDef {
-    pub name: usize,
-    pub args: ArgDefList,
-    pub body: Statements,
-}
-
-/// Calc definition in turtle program
-#[derive(Debug)]
-pub struct CalcDef {
-    pub name: usize,
-    pub args: ArgDefList,
-    pub body: Statements,
-    pub ret: Expr,
-}
-
-/// A position in a file.
-///
-/// Used when an error is found while compiling to tell the developer where to fix his code
-#[derive(Debug, Default, PartialEq, Clone, Copy, PartialOrd, Eq)]
-pub struct FilePos {
-    line: usize,
-    column: usize,
-}
-
-impl FilePos {
-    /// Create a new [`FilePos`] struct.
-    ///
-    /// # Examples
-    /// ```
-    /// # use turtle::FilePos;
-    /// let fp = FilePos::new(10, 20);
-    /// ```
-    pub fn new(line: usize, column: usize) -> Self {
-        Self { line, column }
-    }
-}
-
-impl Display for FilePos {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "line {}, column {}", self.line, self.column)
-    }
-}
-
-impl Ord for FilePos {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.line
-            .cmp(&other.line)
-            .then(self.column.cmp(&other.column))
-    }
-}
-
-/// Attach [`FilePos`] to any type `T`, mostly tokens
-///
-/// Implements [`Deref`](std::ops::Deref) to access inner value
-#[derive(Debug, PartialEq)]
-pub struct Pos<T> {
-    pos: FilePos,
-    token: T,
-}
-
-impl<T> Pos<T> {
-    /// Create new [`Pos`] wrapper.
-    pub fn new(token: T, pos: FilePos) -> Self {
-        Self { pos, token }
-    }
-
-    /// Get attached [`FilePos`]
-    pub fn get_pos(&self) -> FilePos {
-        self.pos
-    }
-
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Pos<U> {
-        let Self { pos, token } = self;
-        Pos {
-            pos,
-            token: f(token),
-        }
-    }
-
-    pub fn into_inner(self) -> T {
-        self.token
-    }
-}
-
-impl<T> std::ops::Deref for Pos<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.token
-    }
-}
-
-impl<T> std::ops::DerefMut for Pos<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.token
-    }
-}
-
-pub trait Positionable: Sized {
-    fn attach_pos(self, pos: FilePos) -> Pos<Self>;
-}
-
-impl<T> Positionable for T {
-    fn attach_pos(self, pos: FilePos) -> Pos<Self> {
-        Pos::new(self, pos)
     }
 }
 

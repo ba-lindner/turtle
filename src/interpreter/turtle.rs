@@ -2,25 +2,25 @@ use std::{f64::consts::PI, time::Duration};
 
 use sdl2::{pixels::Color, rect::Point};
 
-use crate::{predef_vars::PredefVar, Variable};
+use crate::{tokens::{predef_vars::PredefVar, Variable}, SymbolTable};
 
 use super::{varlist::VarList, window::Window};
 
-pub struct Turtle<'w> {
+pub struct Turtle {
     pos: (f64, f64),
-    dir: f64,
+    pub dir: f64,
     glob: VarList,
-    stack: Vec<VarList>,
+    pub stack: Vec<(Option<usize>, VarList)>,
     marks: Vec<((f64, f64), f64)>,
     col: (f64, f64, f64),
     prog_args: [f64; 9],
     max_coord: (f64, f64),
     delay: f64,
-    window: &'w Window,
+    pub window: Window,
 }
 
-impl<'w> Turtle<'w> {
-    pub fn new(window: &'w Window, args: &[String]) -> Self {
+impl Turtle {
+    pub fn new(title: &str, args: &[String]) -> Self {
         let mut prog_args = [0.0; 9];
         for i in 0..9 {
             if i < args.len() {
@@ -33,13 +33,13 @@ impl<'w> Turtle<'w> {
             pos: (0.0, 0.0),
             dir: 0.0,
             glob: VarList::new(),
-            stack: vec![VarList::new()],
+            stack: vec![(None, VarList::new())],
             marks: Vec::new(),
             col: (100.0, 100.0, 0.0),
             prog_args,
             max_coord: (20.0, 15.0),
             delay: 1.0,
-            window,
+            window: Window::new(title),
         }
     }
 
@@ -62,6 +62,7 @@ impl<'w> Turtle<'w> {
         let start = self.map_coord(self.pos);
         let end = self.map_coord(next_pos);
         self.window.draw_line(start, end);
+        // TODO: increase responsiveness with high delays
         std::thread::sleep(Duration::from_millis(self.delay as u64));
         if self.window.exit_pressed() {
             std::process::exit(1);
@@ -89,7 +90,7 @@ impl<'w> Turtle<'w> {
     }
 
     pub fn new_mark(&mut self) {
-        self.marks.push(((self.pos), self.dir));
+        self.marks.push((self.pos, self.dir));
     }
 
     pub fn move_mark(&mut self, draw: bool) {
@@ -100,7 +101,7 @@ impl<'w> Turtle<'w> {
 
     pub fn get_var(&mut self, var: &Variable) -> f64 {
         match var {
-            Variable::Local(id) => self.stack.last_mut().unwrap().get_var(*id),
+            Variable::Local(id) => self.stack.last_mut().unwrap().1.get_var(*id),
             Variable::Global(id) => self.glob.get_var(*id),
             Variable::GlobalPreDef(pdv) => match pdv {
                 PredefVar::Dir => self.dir,
@@ -121,7 +122,7 @@ impl<'w> Turtle<'w> {
 
     pub fn set_var(&mut self, var: &Variable, val: f64) {
         match var {
-            Variable::Local(id) => self.stack.last_mut().unwrap().set_var(*id, val),
+            Variable::Local(id) => self.stack.last_mut().unwrap().1.set_var(*id, val),
             Variable::Global(id) => self.glob.set_var(*id, val),
             Variable::GlobalPreDef(pdv) => match pdv {
                 PredefVar::MaxX => self.max_coord.0 = val,
@@ -144,21 +145,26 @@ impl<'w> Turtle<'w> {
         }
     }
 
-    pub fn set_dir(&mut self, dir: f64) {
-        self.dir = dir.rem_euclid(360.0);
+    pub fn dump_vars(&mut self, symbols: &SymbolTable) {
+        println!("=== variable dump ===");
+        for pdv in PredefVar::get_all() {
+            let val = self.get_var(&Variable::GlobalPreDef(pdv));
+            println!("@{} = {val}", pdv.get_str());
+        }
+        println!();
+        self.glob.dump(symbols, true);
+        println!();
+        self.stack.last().unwrap().1.dump(symbols, false);
+        println!("=== end of dump ===");
     }
 
-    pub fn get_dir(&self) -> f64 {
-        self.dir
+    pub fn set_dir(&mut self, dir: f64) {
+        self.dir = dir.rem_euclid(360.0);
     }
 
     pub fn set_col(&mut self, r: f64, g: f64, b: f64) {
         self.col = (r, g, b);
         self.update_col();
-    }
-
-    pub fn clear(&mut self) {
-        self.window.clear();
     }
 
     pub fn wait_exit(&mut self) {
@@ -167,13 +173,5 @@ impl<'w> Turtle<'w> {
                 return;
             }
         }
-    }
-
-    pub fn push_stack(&mut self, vars: VarList) {
-        self.stack.push(vars);
-    }
-
-    pub fn pop_stack(&mut self) {
-        self.stack.pop();
     }
 }
