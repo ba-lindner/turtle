@@ -127,7 +127,10 @@ impl CComp {
                     draw,
                 )]
             }
-            Statement::MoveHome(draw) => vec![format!("__ttl_walk_pos(0, 0, {draw});")],
+            Statement::MoveHome(draw) => vec![
+                String::from("__ttl_dir = 0.0;"),
+                format!("__ttl_walk_pos(0.0, 0.0, {draw});")
+            ],
             Statement::Turn { left, by } => vec![format!(
                 "__ttl_set_dir(__ttl_dir {} {});",
                 if *left { "+" } else { "-" },
@@ -227,7 +230,7 @@ impl CComp {
                 ctx.nesting += 1;
                 res.append(&mut self.comp_stmts(ctx, body));
                 ctx.nesting -= 1;
-                res.push(format!("}} while ({});", self.comp_cond(ctx, cond)));
+                res.push(format!("}} while (!({}));", self.comp_cond(ctx, cond)));
                 res
             }
         }

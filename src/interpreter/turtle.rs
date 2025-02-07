@@ -79,6 +79,7 @@ impl Turtle {
     }
 
     pub fn move_home(&mut self, draw: bool) {
+        self.dir = 0.0;
         self.move_to((0.0, 0.0), draw);
     }
 
