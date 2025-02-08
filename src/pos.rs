@@ -3,7 +3,7 @@ use std::fmt::Display;
 /// A position in a file.
 ///
 /// Used when an error is found while compiling to tell the developer where to fix his code
-#[derive(Debug, Default, PartialEq, Clone, Copy, PartialOrd, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct FilePos {
     line: usize,
     column: usize,
@@ -25,14 +25,6 @@ impl FilePos {
 impl Display for FilePos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "line {}, column {}", self.line, self.column)
-    }
-}
-
-impl Ord for FilePos {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.line
-            .cmp(&other.line)
-            .then(self.column.cmp(&other.column))
     }
 }
 

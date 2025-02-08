@@ -1,6 +1,7 @@
 use crate::{
-    lexer::LexToken,
-    tokens::{predef_vars::PredefVar, keywords::Keyword, *},
+    prog::lexer::LexToken,
+    prog::{CalcDef, PathDef},
+    tokens::{keywords::Keyword, predef_vars::PredefVar, *},
     FilePos, Identified, Pos, Positionable,
 };
 use indexmap::IndexMap;
@@ -122,11 +123,11 @@ impl<'a> Parser<'a> {
                 self.expect_symbol(',')?;
             }
         }
-        Ok(ParseToken::PathDef(
+        Ok(ParseToken::PathDef(PathDef {
             name,
             args,
-            self.parse_statements(Keyword::Endpath)?,
-        ))
+            body: self.parse_statements(Keyword::Endpath)?,
+        }))
     }
 
     fn parse_calc(&mut self) -> PRes<ParseToken> {
@@ -147,7 +148,12 @@ impl<'a> Parser<'a> {
         let stmts = self.parse_statements(Keyword::Returns)?;
         let ret = self.parse_expr()?;
         self.expect_keyword(Keyword::Endcalc)?;
-        Ok(ParseToken::CalcDef(name, args, stmts, ret))
+        Ok(ParseToken::CalcDef(CalcDef {
+            name,
+            args,
+            body: stmts,
+            ret,
+        }))
     }
 
     fn parse_main(&mut self) -> PRes<ParseToken> {
@@ -227,10 +233,16 @@ impl<'a> Parser<'a> {
 
     fn parse_turn(&mut self) -> PRes<Statement> {
         if self.match_keyword(Keyword::Left) {
-            Ok(Statement::Turn { left: true, by: self.parse_expr()? })
+            Ok(Statement::Turn {
+                left: true,
+                by: self.parse_expr()?,
+            })
         } else {
             let _ = self.match_keyword(Keyword::Right); // ignore as it's optional
-            Ok(Statement::Turn { left: false, by: self.parse_expr()? })
+            Ok(Statement::Turn {
+                left: false,
+                by: self.parse_expr()?,
+            })
         }
     }
 
@@ -416,9 +428,7 @@ impl<'a> Parser<'a> {
             self.expect_symbol('|')?;
             Ok(Expr::Absolute(Box::new(expr)))
         } else if self.match_symbol('-') {
-            Ok(Expr::Negate(
-                Box::new(self.parse_single_expr()?),
-            ))
+            Ok(Expr::Negate(Box::new(self.parse_single_expr()?)))
         } else if let Some(LexToken::IntLiteral(i)) = self.lookahead() {
             self.pos += 1;
             Ok(Expr::Const(i as f64))
@@ -679,7 +689,8 @@ mod test {
                     dist: Expr::Const(30.0),
                     draw: true,
                     back: false,
-                }.attach_pos(fp)]
+                }
+                .attach_pos(fp)]
             )
         );
     }

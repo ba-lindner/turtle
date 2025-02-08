@@ -1,11 +1,18 @@
 use std::fmt::{Display, Write as _};
 
-use crate::{Pos, SymbolTable};
+use crate::{
+    prog::{CalcDef, PathDef},
+    Pos, SymbolTable,
+};
 
 use self::predef_vars::PredefVar;
 
 pub mod keywords;
 pub mod predef_vars;
+
+pub type ArgList = Vec<Expr>;
+pub type ArgDefList = Vec<usize>;
+pub type Statements = Vec<Pos<Statement>>;
 
 pub trait Narrate {
     fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result;
@@ -16,10 +23,6 @@ pub trait Narrate {
         buf
     }
 }
-
-pub type ArgList = Vec<Expr>;
-pub type ArgDefList = Vec<usize>;
-pub type Statements = Vec<Pos<Statement>>;
 
 impl Narrate for [Expr] {
     fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
@@ -35,8 +38,8 @@ impl Narrate for [Expr] {
 
 #[derive(Debug)]
 pub enum ParseToken {
-    PathDef(usize, ArgDefList, Statements),
-    CalcDef(usize, ArgDefList, Statements, Expr),
+    PathDef(PathDef),
+    CalcDef(CalcDef),
     StartBlock(Statements),
 }
 
@@ -69,13 +72,13 @@ pub enum Statement {
     IfBranch(Cond, Statements),
     IfElseBranch(Cond, Statements, Statements),
     DoLoop(Expr, Statements),
-    CounterLoop { 
+    CounterLoop {
         counter: Variable,
         from: Expr,
         up: bool,
         to: Expr,
         step: Option<Expr>,
-        body: Statements
+        body: Statements,
     },
     WhileLoop(Cond, Statements),
     RepeatLoop(Cond, Statements),
@@ -91,15 +94,15 @@ pub enum StmtKind {
 impl Statement {
     pub fn kind(&self) -> StmtKind {
         match self {
-            Self::MoveDist { draw: true, .. } |
-            Self::MoveHome(true) |
-            Self::MoveMark(true) => StmtKind::Draw,
-            Self::Clear |
-            Self::Direction(_) |
-            Self::MoveDist { .. } |
-            Self::MoveHome(_) |
-            Self::MoveMark(_) |
-            Self::Turn { .. } => StmtKind::Turtle,
+            Self::MoveDist { draw: true, .. } | Self::MoveHome(true) | Self::MoveMark(true) => {
+                StmtKind::Draw
+            }
+            Self::Clear
+            | Self::Direction(_)
+            | Self::MoveDist { .. }
+            | Self::MoveHome(_)
+            | Self::MoveMark(_)
+            | Self::Turn { .. } => StmtKind::Turtle,
             _ => StmtKind::Any,
         }
     }
@@ -141,10 +144,13 @@ impl Statement {
             Statement::PathCall(id, args) => {
                 println!(
                     "started path {}({})",
-                    symbols.get_index(*id).expect("missing path in symbol table").0,
+                    symbols
+                        .get_index(*id)
+                        .expect("missing path in symbol table")
+                        .0,
                     args.narrate(symbols),
                 )
-            },
+            }
             Statement::Store(expr, var) => {
                 println!(
                     "stored {} to {}",
@@ -165,10 +171,7 @@ impl Statement {
             }
             Statement::Mark => println!("marked current location"),
             Statement::MoveMark(draw) => {
-                println!(
-                    "{} to last mark",
-                    if *draw { "walked" } else { "jumped" }
-                )
+                println!("{} to last mark", if *draw { "walked" } else { "jumped" })
             }
             Statement::IfBranch(_, _) => println!("finished if"),
             Statement::IfElseBranch(_, _, _) => println!("finished if-else"),
@@ -190,8 +193,22 @@ pub enum Variable {
 impl Narrate for Variable {
     fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
         match self {
-            Variable::Local(id) => write!(buf, "{}", symbols.get_index(*id).expect("missing variable in symbol table").0),
-            Variable::Global(id) => write!(buf, "@{}", symbols.get_index(*id).expect("missing variable in symbol table").0),
+            Variable::Local(id) => write!(
+                buf,
+                "{}",
+                symbols
+                    .get_index(*id)
+                    .expect("missing variable in symbol table")
+                    .0
+            ),
+            Variable::Global(id) => write!(
+                buf,
+                "@{}",
+                symbols
+                    .get_index(*id)
+                    .expect("missing variable in symbol table")
+                    .0
+            ),
             Variable::GlobalPreDef(pdv) => write!(buf, "@{}", pdv.get_str()),
         }
     }
@@ -239,10 +256,17 @@ impl Narrate for Expr {
                 write!(buf, ")")
             }
             Expr::CalcCall(id, args) => {
-                let _ = write!(buf, "{}(", symbols.get_index(*id).expect("missing calc in symbol table").0);
+                let _ = write!(
+                    buf,
+                    "{}(",
+                    symbols
+                        .get_index(*id)
+                        .expect("missing calc in symbol table")
+                        .0
+                );
                 let _ = args.narrate_buf(symbols, buf);
                 write!(buf, ")")
-            },
+            }
         }
     }
 }

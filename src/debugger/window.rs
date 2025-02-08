@@ -1,4 +1,6 @@
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Point, render::Canvas, EventPump};
+use sdl2::{
+    event::Event, keyboard::Keycode, pixels::Color, rect::Point, render::Canvas, EventPump,
+};
 
 pub struct Window {
     canvas: Canvas<sdl2::video::Window>,
@@ -19,10 +21,7 @@ impl Window {
         let mut canvas = window.into_canvas().build().unwrap();
         let events = sdl_context.event_pump().unwrap();
         canvas.set_draw_color(super::START_COLOR);
-        let mut res = Self {
-            canvas,
-            events,
-        };
+        let mut res = Self { canvas, events };
         res.clear();
         res
     }
@@ -48,7 +47,9 @@ impl Window {
         let mut res = Vec::new();
         while let Some(evt) = self.events.poll_event() {
             match evt {
-                Event::KeyDown { keycode: Some(kc), .. } => {
+                Event::KeyDown {
+                    keycode: Some(kc), ..
+                } => {
                     res.push(kc);
                 }
                 Event::Quit { .. } => {

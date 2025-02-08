@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::tokens::{
-    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Statements, Variable
+    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Statements, Variable,
 };
 use crate::TProgram;
 
@@ -106,7 +106,7 @@ impl CComp {
     fn comp_stmts(&self, ctx: &mut Context, stmts: &Statements) -> Vec<String> {
         let mut res = Vec::new();
         for stmt in stmts {
-            let mut code = self.comp_stmt(ctx, &*stmt);
+            let mut code = self.comp_stmt(ctx, stmt);
             for var in ctx.get_new() {
                 ctx.insert(var, true);
                 res.push(format!("\tdouble {} = 0.0;", self.get_ident(var)));
@@ -129,7 +129,7 @@ impl CComp {
             }
             Statement::MoveHome(draw) => vec![
                 String::from("__ttl_dir = 0.0;"),
-                format!("__ttl_walk_pos(0.0, 0.0, {draw});")
+                format!("__ttl_walk_pos(0.0, 0.0, {draw});"),
             ],
             Statement::Turn { left, by } => vec![format!(
                 "__ttl_set_dir(__ttl_dir {} {});",
@@ -199,7 +199,14 @@ impl CComp {
                 res.push(String::from("}"));
                 res
             }
-            Statement::CounterLoop { counter, from, up, to, step, body } => {
+            Statement::CounterLoop {
+                counter,
+                from,
+                up,
+                to,
+                step,
+                body,
+            } => {
                 let (cmp_op, step_op) = if *up { ("<", "+=") } else { (">", "-=") };
                 ctx.nesting += 1;
                 let mut res = vec![format!(
@@ -356,7 +363,7 @@ impl CComp {
     fn get_ident(&self, id: usize) -> String {
         let res = self
             .prog
-            .idents
+            .symbols
             .get_index(id)
             .expect("missing identifier")
             .0;

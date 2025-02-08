@@ -20,7 +20,7 @@ impl Context {
     }
 
     pub fn has_var(&mut self, name: usize) -> bool {
-        let res = self.vars.get(&name).is_some();
+        let res = self.vars.contains_key(&name);
         if self.nesting != 0 && !res {
             self.vars.insert(name, false);
             return true;

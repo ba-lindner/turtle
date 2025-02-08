@@ -88,7 +88,7 @@ impl PredefVar {
 
 impl FromStr for PredefVar {
     type Err = ();
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         for pdv in PredefVar::get_all() {
             if pdv.get_str() == s {

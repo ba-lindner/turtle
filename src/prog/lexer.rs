@@ -3,11 +3,9 @@ use std::io::Result as IOResult;
 use std::num::{ParseFloatError, ParseIntError};
 use std::path::Path;
 
-use indexmap::IndexMap;
-
 use crate::tokens::predef_vars::PredefVar;
-use crate::Positionable;
 use crate::{tokens::keywords::Keyword, FilePos, Identified, Pos};
+use crate::{Positionable, SymbolTable, TurtleError};
 
 pub type LResult = Pos<Result<LexToken, LexError>>;
 
@@ -20,31 +18,42 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     last_col: usize,
-    identifiers: &'a mut IndexMap<String, Identified>,
+    pub symbols: &'a mut SymbolTable,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(
-        identifiers: &'a mut IndexMap<String, Identified>,
-        iter: impl Iterator<Item = char>,
-    ) -> Self {
+    pub fn new(symbols: &'a mut SymbolTable, iter: impl Iterator<Item = char>) -> Self {
         Self {
             chars: iter.collect(),
             offset: 0,
             line: 1,
             column: 1,
             last_col: 1,
-            identifiers,
+            symbols,
         }
     }
 
-    pub fn from_file(
-        identifiers: &'a mut IndexMap<String, Identified>,
-        filename: &str,
-    ) -> IOResult<Self> {
+    pub fn from_file(symbols: &'a mut SymbolTable, filename: &str) -> IOResult<Self> {
         let path = Path::new(filename);
         let src = std::fs::read_to_string(path)?;
-        Ok(Self::new(identifiers, src.chars()))
+        Ok(Self::new(symbols, src.chars()))
+    }
+
+    pub fn collect_tokens(&mut self) -> Result<Vec<Pos<LexToken>>, TurtleError> {
+        let mut errs = Vec::new();
+        let mut res = Vec::new();
+        for lres in self {
+            let pos = lres.get_pos();
+            match lres.into_inner() {
+                Ok(token) => res.push(token.attach_pos(pos)),
+                Err(why) => errs.push(why.attach_pos(pos)),
+            }
+        }
+        if !errs.is_empty() {
+            Err(TurtleError::LexErrors(errs))
+        } else {
+            Ok(res)
+        }
     }
 
     pub fn next_token(&mut self) -> Option<LResult> {
@@ -121,11 +130,11 @@ impl<'a> Lexer<'a> {
         let str = self.get_identifier();
         if let Ok(var) = str.parse() {
             Ok(LexToken::PredefVar(var))
-        } else if let Some(idx) = self.identifiers.get_index_of(&str) {
+        } else if let Some(idx) = self.symbols.get_index_of(&str) {
             Ok(LexToken::GlobalVar(idx))
         } else {
-            let idx = self.identifiers.len();
-            self.identifiers.insert(str, Identified::GlobalVar);
+            let idx = self.symbols.len();
+            self.symbols.insert(str, Identified::GlobalVar);
             Ok(LexToken::GlobalVar(idx))
         }
     }
@@ -135,11 +144,11 @@ impl<'a> Lexer<'a> {
         let str = self.get_identifier();
         if let Ok(kw) = str.parse::<Keyword>() {
             Ok(LexToken::Keyword(kw))
-        } else if let Some(idx) = self.identifiers.get_index_of(&str) {
+        } else if let Some(idx) = self.symbols.get_index_of(&str) {
             Ok(LexToken::Identifier(idx))
         } else {
-            let idx = self.identifiers.len();
-            self.identifiers.insert(str, Identified::Unknown);
+            let idx = self.symbols.len();
+            self.symbols.insert(str, Identified::Unknown);
             Ok(LexToken::Identifier(idx))
         }
     }
@@ -259,7 +268,7 @@ mod test {
 
     macro_rules! lex_this {
         ($lex:ident, $code:expr) => {
-            let mut ident = IndexMap::<String, Identified>::new();
+            let mut ident = SymbolTable::new();
             #[allow(unused_mut)]
             let mut $lex = Lexer::new(&mut ident, $code.chars());
         };

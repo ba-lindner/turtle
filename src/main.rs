@@ -1,5 +1,5 @@
-use std::process::Command;
 use clap::{Parser, Subcommand};
+use std::process::Command;
 use turtle::TProgram;
 
 #[derive(Parser)]
@@ -7,20 +7,22 @@ use turtle::TProgram;
 struct Cli {
     #[command(subcommand)]
     command: TCommand,
-    /// the turtle source file to operate on
-    file: String,
 }
 
 #[derive(Subcommand)]
 enum TCommand {
     /// Start interpreter
     Run {
+        /// the turtle source file to run
+        file: String,
         /// args passed to turtle
         #[arg(last = true)]
         args: Vec<String>,
     },
     /// Start debugger
     Debug {
+        /// the turtle source file to debug
+        file: String,
         /// set breakpoints in format line,column
         #[arg(short, long)]
         breakpoint: Vec<String>,
@@ -30,25 +32,40 @@ enum TCommand {
     },
     /// Compile to C
     Compile {
+        /// the turtle source file to compile
+        file: String,
         /// enable debug builds
         #[arg(short, long)]
         debug: bool,
         /// rebuild turtle interface
-        #[arg(long)]
+        #[arg(short, long)]
         no_cache: bool,
     },
     /// Check syntax
-    Check,
+    Check {
+        /// the turtle source file to check
+        file: String,
+    },
 }
 
 fn main() {
     let cli = Cli::parse();
-    let prog = turtle::parse_file(&cli.file).unwrap();
     match cli.command {
-        TCommand::Run { args } => prog.interpret(&args),
-        TCommand::Debug { breakpoint: bp, args } => prog.debug(&args, &bp),
-        TCommand::Compile { debug, no_cache } => compile(prog, &cli.file, no_cache, debug),
-        TCommand::Check => {}
+        TCommand::Run { file, args } => TProgram::from_file(&file).unwrap().interpret(&args),
+        TCommand::Debug {
+            file,
+            breakpoint: bp,
+            args,
+        } => TProgram::from_file(&file).unwrap().debug(&args, &bp),
+        TCommand::Compile {
+            file,
+            debug,
+            no_cache,
+        } => compile(TProgram::from_file(&file).unwrap(), &file, no_cache, debug),
+        TCommand::Check { file } => {
+            TProgram::from_file(&file).unwrap();
+            println!("no syntax errors found");
+        }
     }
 }
 

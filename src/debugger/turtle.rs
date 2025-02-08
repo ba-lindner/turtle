@@ -2,7 +2,10 @@ use std::{f64::consts::PI, time::Duration};
 
 use sdl2::{pixels::Color, rect::Point};
 
-use crate::{tokens::{predef_vars::PredefVar, Variable}, SymbolTable};
+use crate::{
+    tokens::{predef_vars::PredefVar, Variable},
+    SymbolTable,
+};
 
 use super::{varlist::VarList, window::Window};
 
@@ -166,13 +169,5 @@ impl Turtle {
     pub fn set_col(&mut self, r: f64, g: f64, b: f64) {
         self.col = (r, g, b);
         self.update_col();
-    }
-
-    pub fn wait_exit(&mut self) {
-        loop {
-            if self.window.exit_pressed() {
-                return;
-            }
-        }
     }
 }

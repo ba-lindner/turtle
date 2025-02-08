@@ -8,7 +8,9 @@ pub struct VarList {
 
 impl VarList {
     pub fn new() -> Self {
-        Self { vars: HashMap::new() }
+        Self {
+            vars: HashMap::new(),
+        }
     }
 
     pub fn get_var(&mut self, id: usize) -> f64 {

@@ -8,16 +8,25 @@ use std::{
 
 use parking_lot::Mutex;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
 
 use crate::{
     pos::Pos,
     tokens::{Cond, Expr, Statement, Statements, StmtKind},
     FilePos, TProgram,
 };
+use turtle::Turtle;
+use varlist::VarList;
 
-use super::{turtle::Turtle, varlist::VarList};
+mod turtle;
+mod varlist;
+mod window;
 
 // have a cat
+
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 600;
+const START_COLOR: Color = Color::YELLOW;
 
 struct TurtleWaker;
 
@@ -91,7 +100,7 @@ impl<'p> Debugger<'p> {
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
         let mut fut = pin!(self.dbg_stmts(&self.prog.main));
-        while let Poll::Pending = fut.as_mut().poll(&mut ctx) {}
+        while fut.as_mut().poll(&mut ctx).is_pending() {}
     }
 
     pub fn run(&mut self, bp: &[String]) {
@@ -110,7 +119,7 @@ impl<'p> Debugger<'p> {
             SkipDraw,
         }
 
-        fn parse_pos(bp: &String) -> Option<FilePos> {
+        fn parse_pos(bp: &str) -> Option<FilePos> {
             let (line, col) = bp.split_once(",")?;
             Some(FilePos::new(line.parse().ok()?, col.parse().ok()?))
         }
@@ -122,7 +131,7 @@ impl<'p> Debugger<'p> {
         let prog = self.prog;
 
         // init debug state
-        let breakpoints: Vec<_> = bp.iter().filter_map(parse_pos).collect();
+        let breakpoints: Vec<_> = bp.iter().filter_map(|bp| parse_pos(bp)).collect();
         let mut state = DbgState::Idle;
         let mut narrator = false;
 
@@ -130,7 +139,7 @@ impl<'p> Debugger<'p> {
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
         let mut fut = pin!(self.dbg_stmts(&self.prog.main));
-        while let Poll::Pending = fut.as_mut().poll(&mut ctx) {
+        while fut.as_mut().poll(&mut ctx).is_pending() {
             // main debug loop (the `while` above)
             // executed before and after each statement
 
@@ -141,7 +150,7 @@ impl<'p> Debugger<'p> {
             let action = data.lock().action;
 
             if action == DbgAction::AfterStmt && narrator {
-                data.lock().curr_stmt.unwrap().narrate(&prog.idents);
+                data.lock().curr_stmt.unwrap().narrate(&prog.symbols);
             }
 
             // while used to wait for user interaction if required
@@ -149,7 +158,7 @@ impl<'p> Debugger<'p> {
             while waiting_input {
                 let keys = match turtle.lock().window.keys_pressed() {
                     Ok(codes) => codes,
-                    Err(super::window::ExitPressed) => return,
+                    Err(window::ExitPressed) => return,
                 };
 
                 for key in &keys {
@@ -177,7 +186,7 @@ impl<'p> Debugger<'p> {
                             narrator = !narrator;
                         }
                         Keycode::V => {
-                            turtle.lock().dump_vars(&prog.idents);
+                            turtle.lock().dump_vars(&prog.symbols);
                         }
                         Keycode::P => {
                             let func = turtle
@@ -187,7 +196,7 @@ impl<'p> Debugger<'p> {
                                 .unwrap()
                                 .0
                                 .map(|id| {
-                                    prog.idents
+                                    prog.symbols
                                         .get_index(id)
                                         .expect("missing function name")
                                         .0
@@ -213,7 +222,10 @@ impl<'p> Debugger<'p> {
                 }
 
                 // handle breakpoints
-                if state == DbgState::Running && action == DbgAction::BeforeStmt && breakpoints.len() > 0 {
+                if state == DbgState::Running
+                    && action == DbgAction::BeforeStmt
+                    && !breakpoints.is_empty()
+                {
                     let (prev, curr) = {
                         let data = data.lock();
                         (data.last_pos, data.curr_pos)
@@ -267,7 +279,6 @@ impl<'p> Debugger<'p> {
 
     async fn dbg_stmts(&mut self, stmts: &'p Statements) {
         let fut = async {
-            self.data.lock().last_pos = FilePos::default();
             for stmt in stmts {
                 // before
                 {
