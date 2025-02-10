@@ -4,6 +4,7 @@ use sdl2::{
 
 pub struct Window {
     canvas: Canvas<sdl2::video::Window>,
+    key_queue: Vec<Keycode>,
     events: EventPump,
 }
 
@@ -21,7 +22,11 @@ impl Window {
         let mut canvas = window.into_canvas().build().unwrap();
         let events = sdl_context.event_pump().unwrap();
         canvas.set_draw_color(super::START_COLOR);
-        let mut res = Self { canvas, events };
+        let mut res = Self {
+            canvas,
+            key_queue: Vec::new(),
+            events,
+        };
         res.clear();
         res
     }
@@ -44,27 +49,25 @@ impl Window {
     }
 
     pub fn keys_pressed(&mut self) -> Result<Vec<Keycode>, ExitPressed> {
-        let mut res = Vec::new();
-        while let Some(evt) = self.events.poll_event() {
+        if self.exit_pressed() {
+            Err(ExitPressed)
+        } else {
+            Ok(std::mem::take(&mut self.key_queue))
+        }
+    }
+
+    pub fn exit_pressed(&mut self) -> bool {
+        for evt in self.events.poll_iter() {
             match evt {
                 Event::KeyDown {
                     keycode: Some(kc), ..
                 } => {
-                    res.push(kc);
+                    self.key_queue.push(kc);
                 }
                 Event::Quit { .. } => {
-                    return Err(ExitPressed);
+                    return true;
                 }
                 _ => {}
-            }
-        }
-        Ok(res)
-    }
-
-    pub fn exit_pressed(&mut self) -> bool {
-        while let Some(evt) = self.events.poll_event() {
-            if let Event::Quit { timestamp: _ } = evt {
-                return true;
             }
         }
         false

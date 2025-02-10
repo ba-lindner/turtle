@@ -184,6 +184,7 @@ impl<'p> Debugger<'p> {
                         }
                         Keycode::N => {
                             narrator = !narrator;
+                            println!("narrator is {}", if narrator { "ON" } else { "OFF" });
                         }
                         Keycode::V => {
                             turtle.lock().dump_vars(&prog.symbols);
@@ -217,7 +218,9 @@ impl<'p> Debugger<'p> {
                             println!("  P     - print current position");
                             println!("  H     - show this help");
                         }
-                        _ => {}
+                        k => {
+                            println!("unknown key {k}");
+                        }
                     }
                 }
 
