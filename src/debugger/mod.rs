@@ -60,6 +60,7 @@ pub struct Debugger<'p> {
     turtle: Rc<Mutex<Turtle>>,
     finished: Rc<Mutex<bool>>,
     data: Rc<Mutex<DebugData<'p>>>,
+    enabled: bool,
 }
 
 struct DebugData<'s> {
@@ -93,10 +94,12 @@ impl<'p> Debugger<'p> {
             turtle: Rc::new(Mutex::new(Turtle::new(title, args))),
             finished: Rc::new(Mutex::new(false)),
             data: Rc::new(Mutex::new(DebugData::new())),
+            enabled: true,
         }
     }
 
     pub fn interpret(&mut self) {
+        self.enabled = false;
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
         let mut fut = pin!(self.dbg_stmts(&self.prog.main));
@@ -289,12 +292,12 @@ impl<'p> Debugger<'p> {
                     data.update(stmt);
                     data.action = DbgAction::BeforeStmt;
                 }
-                TurtleFuture(false).await;
+                TurtleFuture(!self.enabled).await;
                 // execute
                 self.dbg_stmt(stmt).await;
                 // after
                 self.data.lock().action = DbgAction::AfterStmt;
-                TurtleFuture(false).await;
+                TurtleFuture(!self.enabled).await;
             }
         };
         Box::pin(fut).await
