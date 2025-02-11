@@ -12,7 +12,7 @@ use sdl2::pixels::Color;
 
 use crate::{
     pos::Pos,
-    tokens::{Cond, Expr, Statement, Statements, StmtKind},
+    tokens::{Block, Cond, Expr, Statement, StmtKind},
     FilePos, TProgram,
 };
 use turtle::Turtle;
@@ -71,9 +71,9 @@ struct DebugData<'s> {
 }
 
 impl<'s> DebugData<'s> {
-    fn new() -> Self {
+    fn new(init_pos: FilePos) -> Self {
         Self {
-            last_pos: FilePos::default(),
+            last_pos: init_pos,
             curr_pos: FilePos::default(),
             curr_stmt: None,
             action: DbgAction::BeforeStmt,
@@ -81,7 +81,9 @@ impl<'s> DebugData<'s> {
     }
 
     fn update(&mut self, stmt: &'s Pos<Statement>) {
-        self.last_pos = self.curr_pos;
+        if !self.curr_pos.is_empty() {
+            self.last_pos = self.curr_pos;
+        }
         self.curr_pos = stmt.get_pos();
         self.curr_stmt = Some(&**stmt);
     }
@@ -93,7 +95,7 @@ impl<'p> Debugger<'p> {
             prog,
             turtle: Rc::new(Mutex::new(Turtle::new(title, args))),
             finished: Rc::new(Mutex::new(false)),
-            data: Rc::new(Mutex::new(DebugData::new())),
+            data: Rc::new(Mutex::new(DebugData::new(prog.main.begin))),
             enabled: true,
         }
     }
@@ -102,7 +104,7 @@ impl<'p> Debugger<'p> {
         self.enabled = false;
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
-        let mut fut = pin!(self.dbg_stmts(&self.prog.main));
+        let mut fut = pin!(self.dbg_block(&self.prog.main));
         while fut.as_mut().poll(&mut ctx).is_pending() {}
     }
 
@@ -141,7 +143,7 @@ impl<'p> Debugger<'p> {
         // async stuff
         let waker: Waker = Arc::new(TurtleWaker).into();
         let mut ctx = Context::from_waker(&waker);
-        let mut fut = pin!(self.dbg_stmts(&self.prog.main));
+        let mut fut = pin!(self.dbg_block(&self.prog.main));
         while fut.as_mut().poll(&mut ctx).is_pending() {
             // main debug loop (the `while` above)
             // executed before and after each statement
@@ -232,13 +234,11 @@ impl<'p> Debugger<'p> {
                     && action == DbgAction::BeforeStmt
                     && !breakpoints.is_empty()
                 {
-                    let (prev, curr) = {
-                        let data = data.lock();
-                        (data.last_pos, data.curr_pos)
-                    };
+                    let mut data = data.lock();
                     for &bp in &breakpoints {
-                        if prev < bp && bp <= curr {
+                        if data.last_pos < bp && bp <= data.curr_pos {
                             state = DbgState::Idle;
+                            data.last_pos = data.curr_pos;
                             break;
                         }
                     }
@@ -283,9 +283,14 @@ impl<'p> Debugger<'p> {
         }
     }
 
-    async fn dbg_stmts(&mut self, stmts: &'p Statements) {
+    async fn dbg_block(&mut self, block: &'p Block) {
         let fut = async {
-            for stmt in stmts {
+            {
+                let mut data = self.data.lock();
+                data.last_pos = block.begin;
+                data.curr_pos = FilePos::default();
+            }
+            for stmt in &block.statements {
                 // before
                 {
                     let mut data = self.data.lock();
@@ -337,7 +342,7 @@ impl<'p> Debugger<'p> {
                     vars.set_var(path.args[i], *arg);
                 }
                 self.turtle.lock().stack.push((Some(*id), vars));
-                self.dbg_stmts(&path.body).await;
+                self.dbg_block(&path.body).await;
                 self.turtle.lock().stack.pop();
             }
             Statement::Store(expr, var) => {
@@ -353,20 +358,20 @@ impl<'p> Debugger<'p> {
             Statement::MoveMark(draw) => self.turtle.lock().move_mark(*draw),
             Statement::IfBranch(cond, stmts) => {
                 if self.dbg_cond(cond).await {
-                    self.dbg_stmts(stmts).await;
+                    self.dbg_block(stmts).await;
                 }
             }
             Statement::IfElseBranch(cond, if_stmts, else_stmts) => {
                 if self.dbg_cond(cond).await {
-                    self.dbg_stmts(if_stmts).await;
+                    self.dbg_block(if_stmts).await;
                 } else {
-                    self.dbg_stmts(else_stmts).await;
+                    self.dbg_block(else_stmts).await;
                 }
             }
             Statement::DoLoop(expr, stmts) => {
                 let count = self.dbg_expr(expr).await.floor();
                 for _ in 0..count as isize {
-                    self.dbg_stmts(stmts).await;
+                    self.dbg_block(stmts).await;
                 }
             }
             Statement::CounterLoop {
@@ -386,20 +391,20 @@ impl<'p> Debugger<'p> {
                     };
                 self.turtle.lock().set_var(counter, init);
                 while *up != (self.turtle.lock().get_var(counter) >= end) {
-                    self.dbg_stmts(body).await;
+                    self.dbg_block(body).await;
                     let next_val = self.turtle.lock().get_var(counter) + step;
                     self.turtle.lock().set_var(counter, next_val);
                 }
             }
             Statement::WhileLoop(cond, stmts) => {
                 while self.dbg_cond(cond).await {
-                    self.dbg_stmts(stmts).await;
+                    self.dbg_block(stmts).await;
                 }
             }
             Statement::RepeatLoop(cond, stmts) => {
-                self.dbg_stmts(stmts).await;
+                self.dbg_block(stmts).await;
                 while !self.dbg_cond(cond).await {
-                    self.dbg_stmts(stmts).await;
+                    self.dbg_block(stmts).await;
                 }
             }
         }
@@ -434,7 +439,7 @@ impl<'p> Debugger<'p> {
                         vars.set_var(calc.args[i], *arg);
                     }
                     self.turtle.lock().stack.push((Some(*id), vars));
-                    self.dbg_stmts(&calc.body).await;
+                    self.dbg_block(&calc.body).await;
                     let res = self.dbg_expr(&calc.ret).await;
                     self.turtle.lock().stack.pop();
                     res

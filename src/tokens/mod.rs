@@ -1,8 +1,7 @@
 use std::fmt::{Display, Write as _};
 
 use crate::{
-    prog::{CalcDef, PathDef},
-    Pos, SymbolTable,
+    pos::FilePos, prog::{CalcDef, PathDef}, Pos, SymbolTable
 };
 
 use self::predef_vars::PredefVar;
@@ -12,27 +11,31 @@ pub mod predef_vars;
 
 pub type ArgList = Vec<Expr>;
 pub type ArgDefList = Vec<usize>;
-pub type Statements = Vec<Pos<Statement>>;
+
+#[derive(Debug, PartialEq)]
+pub struct Block {
+    pub begin: FilePos,
+    pub statements: Vec<Pos<Statement>>,
+}
 
 pub trait Narrate {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result;
+    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String);
 
     fn narrate(&self, symbols: &SymbolTable) -> String {
         let mut buf = String::new();
-        let _ = self.narrate_buf(symbols, &mut buf);
+        self.narrate_buf(symbols, &mut buf);
         buf
     }
 }
 
 impl Narrate for [Expr] {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
+    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
         for (idx, expr) in self.iter().enumerate() {
             if idx > 0 {
                 let _ = write!(buf, ", ");
-                let _ = expr.narrate_buf(symbols, buf);
+                expr.narrate_buf(symbols, buf);
             }
         }
-        Ok(())
     }
 }
 
@@ -40,7 +43,7 @@ impl Narrate for [Expr] {
 pub enum ParseToken {
     PathDef(PathDef),
     CalcDef(CalcDef),
-    StartBlock(Statements),
+    StartBlock(Block),
 }
 
 #[derive(Debug, PartialEq)]
@@ -69,19 +72,19 @@ pub enum Statement {
     },
     Mark,
     MoveMark(bool),
-    IfBranch(Cond, Statements),
-    IfElseBranch(Cond, Statements, Statements),
-    DoLoop(Expr, Statements),
+    IfBranch(Cond, Block),
+    IfElseBranch(Cond, Block, Block),
+    DoLoop(Expr, Block),
     CounterLoop {
         counter: Variable,
         from: Expr,
         up: bool,
         to: Expr,
         step: Option<Expr>,
-        body: Statements,
+        body: Block,
     },
-    WhileLoop(Cond, Statements),
-    RepeatLoop(Cond, Statements),
+    WhileLoop(Cond, Block),
+    RepeatLoop(Cond, Block),
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -191,8 +194,8 @@ pub enum Variable {
 }
 
 impl Narrate for Variable {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
-        match self {
+    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
+        let _ = match self {
             Variable::Local(id) => write!(
                 buf,
                 "{}",
@@ -210,7 +213,7 @@ impl Narrate for Variable {
                     .0
             ),
             Variable::GlobalPreDef(pdv) => write!(buf, "@{}", pdv.get_str()),
-        }
+        };
     }
 }
 
@@ -227,33 +230,35 @@ pub enum Expr {
 }
 
 impl Narrate for Expr {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
+    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
         match self {
-            Expr::Const(val) => write!(buf, "{val}"),
+            Expr::Const(val) => {
+                let _ = write!(buf, "{val}");
+            }
             Expr::Variable(var) => var.narrate_buf(symbols, buf),
             Expr::BiOperation(lhs, op, rhs) => {
-                let _ = lhs.narrate_buf(symbols, buf);
+                lhs.narrate_buf(symbols, buf);
                 let _ = write!(buf, "{op}");
-                rhs.narrate_buf(symbols, buf)
+                rhs.narrate_buf(symbols, buf);
             }
             Expr::Negate(expr) => {
                 let _ = write!(buf, "-");
-                expr.narrate_buf(symbols, buf)
+                expr.narrate_buf(symbols, buf);
             }
             Expr::Absolute(expr) => {
                 let _ = write!(buf, "|");
-                let _ = expr.narrate_buf(symbols, buf);
-                write!(buf, "|")
+                expr.narrate_buf(symbols, buf);
+                let _ = write!(buf, "|");
             }
             Expr::Bracket(expr) => {
                 let _ = write!(buf, "(");
-                let _ = expr.narrate_buf(symbols, buf);
-                write!(buf, ")")
+                expr.narrate_buf(symbols, buf);
+                let _ = write!(buf, ")");
             }
             Expr::FuncCall(pdf, args) => {
                 let _ = write!(buf, "{pdf}(");
-                let _ = args.narrate_buf(symbols, buf);
-                write!(buf, ")")
+                args.narrate_buf(symbols, buf);
+                let _ = write!(buf, ")");
             }
             Expr::CalcCall(id, args) => {
                 let _ = write!(
@@ -264,8 +269,8 @@ impl Narrate for Expr {
                         .expect("missing calc in symbol table")
                         .0
                 );
-                let _ = args.narrate_buf(symbols, buf);
-                write!(buf, ")")
+                args.narrate_buf(symbols, buf);
+                let _ = write!(buf, ")");
             }
         }
     }
@@ -321,31 +326,31 @@ pub enum Cond {
 }
 
 impl Narrate for Cond {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) -> std::fmt::Result {
+    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
         match self {
             Cond::Bracket(cond) => {
                 let _ = write!(buf, "(");
-                let _ = cond.narrate_buf(symbols, buf);
-                write!(buf, ")")
+                cond.narrate_buf(symbols, buf);
+                let _ = write!(buf, ")");
             }
             Cond::Cmp(lhs, op, rhs) => {
-                let _ = lhs.narrate_buf(symbols, buf);
+                lhs.narrate_buf(symbols, buf);
                 let _ = write!(buf, " {op} ");
-                rhs.narrate_buf(symbols, buf)
+                rhs.narrate_buf(symbols, buf);
             }
             Cond::And(lhs, rhs) => {
-                let _ = lhs.narrate_buf(symbols, buf);
+                lhs.narrate_buf(symbols, buf);
                 let _ = write!(buf, " && ");
-                rhs.narrate_buf(symbols, buf)
+                rhs.narrate_buf(symbols, buf);
             }
             Cond::Or(lhs, rhs) => {
-                let _ = lhs.narrate_buf(symbols, buf);
+                lhs.narrate_buf(symbols, buf);
                 let _ = write!(buf, " || ");
-                rhs.narrate_buf(symbols, buf)
+                rhs.narrate_buf(symbols, buf);
             }
             Cond::Not(cond) => {
                 let _ = write!(buf, "!");
-                cond.narrate_buf(symbols, buf)
+                cond.narrate_buf(symbols, buf);
             }
         }
     }

@@ -20,6 +20,10 @@ impl FilePos {
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.column == 0 && self.line == 0
+    }
 }
 
 impl Display for FilePos {

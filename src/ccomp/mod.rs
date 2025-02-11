@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::tokens::{
-    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Statements, Variable,
+    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Block, Variable,
 };
 use crate::TProgram;
 
@@ -56,7 +56,7 @@ impl CComp {
         content.push(String::new());
         content.push(String::from("int main(int argc, const char *argv[]) {"));
         content.push(String::from("\t__ttl_init(argc, argv);"));
-        content.append(&mut self.comp_stmts(&mut context.clone(), &self.prog.main));
+        content.append(&mut self.comp_block(&mut context.clone(), &self.prog.main));
         content.push(String::from("\treturn 0;"));
         content.push(String::from("}"));
         // other functions
@@ -72,7 +72,7 @@ impl CComp {
                 self.get_ident(pathdef.name),
                 args
             ));
-            content.append(&mut self.comp_stmts(&mut ctx, &pathdef.body));
+            content.append(&mut self.comp_block(&mut ctx, &pathdef.body));
             content.push(String::from("}"));
         }
         for calcdef in &self.prog.calcs {
@@ -87,7 +87,7 @@ impl CComp {
                 self.get_ident(calcdef.name),
                 args
             ));
-            content.append(&mut self.comp_stmts(&mut ctx, &calcdef.body));
+            content.append(&mut self.comp_block(&mut ctx, &calcdef.body));
             content.push(format!(
                 "\treturn {};",
                 self.comp_expr(&mut ctx, &calcdef.ret)
@@ -103,9 +103,9 @@ impl CComp {
         }
     }
 
-    fn comp_stmts(&self, ctx: &mut Context, stmts: &Statements) -> Vec<String> {
+    fn comp_block(&self, ctx: &mut Context, block: &Block) -> Vec<String> {
         let mut res = Vec::new();
-        for stmt in stmts {
+        for stmt in &block.statements {
             let mut code = self.comp_stmt(ctx, stmt);
             for var in ctx.get_new() {
                 ctx.insert(var, true);
@@ -172,7 +172,7 @@ impl CComp {
             Statement::IfBranch(cond, stmts) => {
                 let mut res = vec![format!("if ({}) {{", self.comp_cond(ctx, cond))];
                 ctx.nesting += 1;
-                res.append(&mut self.comp_stmts(ctx, stmts));
+                res.append(&mut self.comp_block(ctx, stmts));
                 ctx.nesting -= 1;
                 res.push(String::from("}"));
                 res
@@ -180,9 +180,9 @@ impl CComp {
             Statement::IfElseBranch(cond, if_branch, else_branch) => {
                 let mut res = vec![format!("if ({}) {{", self.comp_cond(ctx, cond))];
                 ctx.nesting += 1;
-                res.append(&mut self.comp_stmts(ctx, if_branch));
+                res.append(&mut self.comp_block(ctx, if_branch));
                 res.push(String::from("} else {"));
-                res.append(&mut self.comp_stmts(ctx, else_branch));
+                res.append(&mut self.comp_block(ctx, else_branch));
                 ctx.nesting -= 1;
                 res.push(String::from("}"));
                 res
@@ -194,7 +194,7 @@ impl CComp {
                     self.comp_expr(ctx, expr)
                 )];
                 ctx.nesting += 1;
-                res.append(&mut self.comp_stmts(ctx, stmts));
+                res.append(&mut self.comp_block(ctx, stmts));
                 ctx.nesting -= 1;
                 res.push(String::from("}"));
                 res
@@ -219,7 +219,7 @@ impl CComp {
                         None => String::from("1.0"),
                     },
                 )];
-                res.append(&mut self.comp_stmts(ctx, body));
+                res.append(&mut self.comp_block(ctx, body));
                 ctx.nesting -= 1;
                 res.push(String::from("}"));
                 res
@@ -227,7 +227,7 @@ impl CComp {
             Statement::WhileLoop(cond, body) => {
                 let mut res = vec![format!("while ({}) {{", self.comp_cond(ctx, cond))];
                 ctx.nesting += 1;
-                res.append(&mut self.comp_stmts(ctx, body));
+                res.append(&mut self.comp_block(ctx, body));
                 ctx.nesting -= 1;
                 res.push(String::from("}"));
                 res
@@ -235,7 +235,7 @@ impl CComp {
             Statement::RepeatLoop(cond, body) => {
                 let mut res = vec![String::from("do {")];
                 ctx.nesting += 1;
-                res.append(&mut self.comp_stmts(ctx, body));
+                res.append(&mut self.comp_block(ctx, body));
                 ctx.nesting -= 1;
                 res.push(format!("}} while (!({}));", self.comp_cond(ctx, cond)));
                 res

@@ -1,5 +1,5 @@
 use crate::{
-    tokens::{ArgDefList, Expr, ParseToken, Statements},
+    tokens::{ArgDefList, Expr, ParseToken, Block},
     Debugger, Identified, SymbolTable, TurtleError,
 };
 
@@ -13,7 +13,7 @@ pub mod parser;
 struct RawProg {
     paths: Vec<PathDef>,
     calcs: Vec<CalcDef>,
-    main: Option<Statements>,
+    main: Option<Block>,
 }
 
 impl RawProg {
@@ -37,7 +37,7 @@ impl RawProg {
 pub struct TProgram {
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
-    pub main: Statements,
+    pub main: Block,
     pub symbols: SymbolTable,
 }
 
@@ -105,7 +105,7 @@ impl TProgram {
 pub struct PathDef {
     pub name: usize,
     pub args: ArgDefList,
-    pub body: Statements,
+    pub body: Block,
 }
 
 /// Calc definition in turtle program
@@ -113,6 +113,6 @@ pub struct PathDef {
 pub struct CalcDef {
     pub name: usize,
     pub args: ArgDefList,
-    pub body: Statements,
+    pub body: Block,
     pub ret: Expr,
 }

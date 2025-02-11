@@ -27,12 +27,13 @@ impl<'a> Parser<'a> {
 
     pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
         self.eof()?;
+        let begin = self.curr_pos();
         Some(if self.match_keyword(Keyword::Path) {
-            self.parse_path()
+            self.parse_path(begin)
         } else if self.match_keyword(Keyword::Calculation) {
-            self.parse_calc()
+            self.parse_calc(begin)
         } else if self.match_keyword(Keyword::Begin) {
-            self.parse_main()
+            self.parse_main(begin)
         } else {
             Err(self.unexpected_token(TokenExpectation::BlockStart))
         })
@@ -108,7 +109,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_path(&mut self) -> PRes<ParseToken> {
+    fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
@@ -126,11 +127,11 @@ impl<'a> Parser<'a> {
         Ok(ParseToken::PathDef(PathDef {
             name,
             args,
-            body: self.parse_statements(Keyword::Endpath)?,
+            body: self.parse_statements(begin, Keyword::Endpath)?,
         }))
     }
 
-    fn parse_calc(&mut self) -> PRes<ParseToken> {
+    fn parse_calc(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         self.set_ident_type(name, Identified::Calc)?;
         let mut args = Vec::new();
@@ -145,7 +146,7 @@ impl<'a> Parser<'a> {
                 self.expect_symbol(',')?;
             }
         }
-        let stmts = self.parse_statements(Keyword::Returns)?;
+        let stmts = self.parse_statements(begin, Keyword::Returns)?;
         let ret = self.parse_expr()?;
         self.expect_keyword(Keyword::Endcalc)?;
         Ok(ParseToken::CalcDef(CalcDef {
@@ -156,8 +157,8 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_main(&mut self) -> PRes<ParseToken> {
-        Ok(ParseToken::StartBlock(self.parse_statements(Keyword::End)?))
+    fn parse_main(&mut self, begin: FilePos) -> PRes<ParseToken> {
+        Ok(ParseToken::StartBlock(self.parse_statements(begin, Keyword::End)?))
     }
 
     fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
@@ -192,26 +193,26 @@ impl<'a> Parser<'a> {
             Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul),
             Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div),
             Keyword::Mark => Ok(Statement::Mark),
-            Keyword::If => self.parse_if(),
+            Keyword::If => self.parse_if(fp),
             Keyword::Do => {
                 let expr = self.parse_expr()?;
                 self.expect_keyword(Keyword::Times)?;
                 Ok(Statement::DoLoop(
                     expr,
-                    self.parse_statements(Keyword::Done)?,
+                    self.parse_statements(fp, Keyword::Done)?,
                 ))
             }
-            Keyword::Counter => self.parse_counter(),
+            Keyword::Counter => self.parse_counter(fp),
             Keyword::While => {
                 let cond = self.parse_cond()?;
                 self.expect_keyword(Keyword::Do)?;
                 Ok(Statement::WhileLoop(
                     cond,
-                    self.parse_statements(Keyword::Done)?,
+                    self.parse_statements(fp, Keyword::Done)?,
                 ))
             }
             Keyword::Repeat => {
-                let stmts = self.parse_statements(Keyword::Until)?;
+                let stmts = self.parse_statements(fp, Keyword::Until)?;
                 Ok(Statement::RepeatLoop(self.parse_cond()?, stmts))
             }
             c => Err(ParseError::UnknownStatement(c).attach_pos(self.curr_pos())),
@@ -279,31 +280,33 @@ impl<'a> Parser<'a> {
         Ok(Statement::Calc { val, var, op })
     }
 
-    fn parse_if(&mut self) -> PRes<Statement> {
+    fn parse_if(&mut self, begin: FilePos) -> PRes<Statement> {
         let cond = self.parse_cond()?;
         self.expect_keyword(Keyword::Then)?;
-        let mut stmts = Vec::new();
-        let has_else = loop {
+        let mut statements = Vec::new();
+        let else_start = loop {
+            let fp = self.curr_pos();
             if self.match_keyword(Keyword::Else) {
-                break true;
+                break Some(fp);
             }
             if self.match_keyword(Keyword::Endif) {
-                break false;
+                break None;
             }
-            stmts.push(self.parse_stm()?);
+            statements.push(self.parse_stm()?);
         };
-        if has_else {
+        let if_block = Block { begin, statements };
+        if let Some(else_start) = else_start {
             Ok(Statement::IfElseBranch(
                 cond,
-                stmts,
-                self.parse_statements(Keyword::Endif)?,
+                if_block,
+                self.parse_statements(else_start, Keyword::Endif)?,
             ))
         } else {
-            Ok(Statement::IfBranch(cond, stmts))
+            Ok(Statement::IfBranch(cond, if_block))
         }
     }
 
-    fn parse_counter(&mut self) -> PRes<Statement> {
+    fn parse_counter(&mut self, begin: FilePos) -> PRes<Statement> {
         let counter = self.parse_variable()?;
         self.expect_keyword(Keyword::From)?;
         let from = self.parse_expr()?;
@@ -324,16 +327,16 @@ impl<'a> Parser<'a> {
             up,
             to,
             step,
-            body: self.parse_statements(Keyword::Done)?,
+            body: self.parse_statements(begin, Keyword::Done)?,
         })
     }
 
-    fn parse_statements(&mut self, end_key: Keyword) -> PRes<Statements> {
-        let mut stmts = Vec::new();
+    fn parse_statements(&mut self, begin: FilePos, end_key: Keyword) -> PRes<Block> {
+        let mut statements = Vec::new();
         while !self.match_keyword(end_key) {
-            stmts.push(self.parse_stm()?);
+            statements.push(self.parse_stm()?);
         }
-        Ok(stmts)
+        Ok(Block { begin, statements })
     }
 
     fn parse_variable(&mut self) -> PRes<Variable> {
@@ -648,7 +651,10 @@ mod test {
                     CmpOperator::Less,
                     Box::new(Expr::Const(2.0))
                 ),
-                vec![Statement::Stop.attach_pos(fp)]
+                Block {
+                    begin: fp,
+                    statements: vec![Statement::Stop.attach_pos(fp)]
+                }
             )
         );
     }
@@ -684,13 +690,19 @@ mod test {
                     CmpOperator::GreaterEqual,
                     Box::new(Expr::Const(2.0))
                 ))),
-                vec![Statement::Stop.attach_pos(fp)],
-                vec![Statement::MoveDist {
-                    dist: Expr::Const(30.0),
-                    draw: true,
-                    back: false,
+                Block {
+                    begin: fp,
+                    statements: vec![Statement::Stop.attach_pos(fp)],
+                },
+                Block {
+                    begin: fp,
+                    statements: vec![Statement::MoveDist {
+                        dist: Expr::Const(30.0),
+                        draw: true,
+                        back: false,
+                    }
+                    .attach_pos(fp)]
                 }
-                .attach_pos(fp)]
             )
         );
     }
