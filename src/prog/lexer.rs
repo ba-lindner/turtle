@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::io::Result as IOResult;
 use std::num::{ParseFloatError, ParseIntError};
-use std::path::Path;
 
 use crate::tokens::predef_vars::PredefVar;
 use crate::{tokens::keywords::Keyword, FilePos, Identified, Pos};
@@ -31,12 +29,6 @@ impl<'a> Lexer<'a> {
             last_col: 1,
             symbols,
         }
-    }
-
-    pub fn from_file(symbols: &'a mut SymbolTable, filename: &str) -> IOResult<Self> {
-        let path = Path::new(filename);
-        let src = std::fs::read_to_string(path)?;
-        Ok(Self::new(symbols, src.chars()))
     }
 
     pub fn collect_tokens(&mut self) -> Result<Vec<Pos<LexToken>>, TurtleError> {

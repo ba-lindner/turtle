@@ -30,11 +30,25 @@ impl RawProg {
         }
         Ok(())
     }
+
+    fn finish(self, symbols: SymbolTable) -> Result<TProgram, TurtleError> {
+        let Some(main) = self.main else {
+            return Err(TurtleError::MissingMain);
+        };
+        Ok(TProgram {
+            name: None,
+            paths: self.paths,
+            calcs: self.calcs,
+            main,
+            symbols,
+        })
+    }
 }
 
 /// A full and valid turtle program.
 #[derive(Debug)]
 pub struct TProgram {
+    pub name: Option<String>,
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
     pub main: Block,
@@ -42,39 +56,42 @@ pub struct TProgram {
 }
 
 impl TProgram {
-    pub fn from_file(file: &str) -> Result<Self, TurtleError> {
+    pub fn parse(code: String) -> Result<Self, TurtleError> {
         let mut symbols = SymbolTable::new();
-        let mut lex = Lexer::from_file(&mut symbols, file)?;
-        let ltokens = lex.collect_tokens()?;
+        let ltokens = Lexer::new(&mut symbols, code.chars()).collect_tokens()?;
         let parser = Parser::new(&mut symbols, ltokens);
         let mut raw = RawProg::default();
         for item in parser {
             raw.insert_item(item?)?;
         }
-        let Some(main) = raw.main else {
-            return Err(TurtleError::MissingMain);
-        };
-        let res = TProgram {
-            paths: raw.paths,
-            calcs: raw.calcs,
-            main,
-            symbols,
-        };
-        for (id, (_, kind)) in res.symbols.iter().enumerate() {
+        let this = raw.finish(symbols)?;
+        this.check_idents()?;
+        Ok(this)
+    }
+
+    pub fn from_file(file: &str) -> Result<Self, TurtleError> {
+        let code = std::fs::read_to_string(file)?;
+        let mut this = Self::parse(code)?;
+        this.name = Some(file.to_string());
+        Ok(this)
+    }
+
+    fn check_idents(&self) -> Result<(), TurtleError> {
+        for (id, (_, kind)) in self.symbols.iter().enumerate() {
             match kind {
                 Identified::Unknown => {
                     return Err(TurtleError::UnidentifiedIdentifier(id));
                 }
                 Identified::Path => {
-                    res.get_path(id)?;
+                    self.get_path(id)?;
                 }
                 Identified::Calc => {
-                    res.get_calc(id)?;
+                    self.get_calc(id)?;
                 }
                 _ => {}
             }
         }
-        Ok(res)
+        Ok(())
     }
 
     pub(crate) fn get_path(&self, name: usize) -> Result<&PathDef, TurtleError> {
@@ -91,12 +108,21 @@ impl TProgram {
             .ok_or(TurtleError::MissingDefinition(name))
     }
 
+    pub fn debugger<'p>(&'p self, args: &[String], kind: &str) -> Debugger<'p> {
+        let title = if let Some(name) = &self.name {
+            format!("Turtle {kind} - {name}")
+        } else {
+            format!("Turtle {kind}")
+        };
+        Debugger::new(self, args, &title)
+    }
+
     pub fn interpret(&self, args: &[String]) {
-        Debugger::new(self, args, "Turtle Interpreter").interpret();
+        self.debugger(args, "Interpreter").interpret();
     }
 
     pub fn debug(&self, args: &[String], bp: &[String]) {
-        Debugger::new(self, args, "Turtle Debugger").run(bp);
+        self.debugger(args, "Debugger").run(bp);
     }
 }
 
