@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::tokens::{
     predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Block, Variable,
 };
-use crate::TProgram;
+use crate::{Identified, TProgram};
 
 use self::context::Context;
 
@@ -51,6 +51,12 @@ impl CComp {
                 self.get_ident(calcdef.name),
                 args
             ));
+        }
+        // global variables
+        for (name, kind) in &self.prog.symbols {
+            if *kind == Identified::GlobalVar {
+                content.push(format!("double {name} = 0.0;"));
+            }
         }
         // main function
         content.push(String::new());
@@ -139,11 +145,12 @@ impl CComp {
             Statement::Direction(expr) => {
                 vec![format!("__ttl_set_dir({});", self.comp_expr(ctx, expr))]
             }
-            Statement::Color(red, green, blue) => vec![
-                format!("__ttl_red = {};", self.comp_expr(ctx, red)),
-                format!("__ttl_green = {};", self.comp_expr(ctx, green)),
-                format!("__ttl_blue = {};", self.comp_expr(ctx, blue)),
-            ],
+            Statement::Color(red, green, blue) => vec![format!(
+                "__ttl_set_col({}, {}, {});",
+                self.comp_expr(ctx, red),
+                self.comp_expr(ctx, green),
+                self.comp_expr(ctx, blue)
+            )],
             Statement::Clear => vec![
                 String::from("sdlSetBlack();"),
                 String::from("sdlUpdate();"),

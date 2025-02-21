@@ -25,6 +25,12 @@ double __ttl_dist() {
 	return sqrt(__ttl_x * __ttl_x + __ttl_y * __ttl_y);
 }
 
+void __ttl_set_col(double r, double g, double b) {
+	__ttl_red = r;
+	__ttl_green = g;
+	__ttl_blue = b;
+}
+
 void __ttl_init(int argc, const char *argv[]) {
 	srand(time(NULL));
 	sdlInit();

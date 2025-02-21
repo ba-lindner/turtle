@@ -7,6 +7,7 @@ extern double __ttl_x, __ttl_y, __ttl_max_x, __ttl_max_y, __ttl_dir, __ttl_delay
 extern double __ttl_red, __ttl_green, __ttl_blue, __ttl_args[10];
 
 extern double __ttl_dist();
+extern void __ttl_set_col(double, double, double);
 extern void __ttl_init(int, const char *[]);
 extern void __ttl_stop();
 extern void __ttl_walk_pos(double, double, bool);
