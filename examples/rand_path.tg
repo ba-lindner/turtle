@@ -1,0 +1,61 @@
+calculation clamp(x)
+  if x > 100 then store 100 in x endif
+  if x < 0 then store 0 in x endif
+  returns x
+endcalc
+
+path line(len)
+  while @walked > 100 do
+    sub 100 from @walked
+  done
+  store clamp(|@walked - 50| * 6 - 100) in @red
+  store clamp(100 - |@walked * 3 - 100|) in @green
+  store clamp(100 - |@walked * 3 - 200|) in @blue
+  walk len
+  add len to @walked
+endpath
+
+calculation dist_to_border()
+  if @dir = 0 or @dir = 90 or @dir = 180 or @dir = 270 then
+    if @dir = 0 then
+      store @max_x - @x in dist
+    endif
+    if @dir = 90 then
+      store @max_y + @y in dist
+    endif
+    if @dir = 180 then
+      store @max_x + @x in dist
+    endif
+    if @dir = 270 then
+      store @max_y - @y in dist
+    endif
+  else
+    if @dir > 0 and @dir < 180 then
+      store |(@max_y + @y) / sin(@dir)| in dist_1
+    else
+      store |(@max_y - @y) / sin(@dir)| in dist_1
+    endif
+    if @dir > 270 or @dir < 90 then
+      store |(@max_x - @x) / cos(@dir)| in dist_2
+    else
+      store |(@max_x + @x) / cos(@dir)| in dist_2
+    endif
+    if dist_1 > dist_2 then
+      store dist_2 in dist
+    else
+      store dist_1 in dist
+    endif
+  endif
+  returns dist
+endcalc
+
+begin
+  store 0 in @walked
+  store 10 in @delay
+  while @x < @max_x and @x > -@max_x and @y < @max_y and @y > -@max_y do
+    path line(0.2)
+    store 5 + 100 / dist_to_border() in angle
+    turn rand(-angle, angle)
+  done
+  stop
+end

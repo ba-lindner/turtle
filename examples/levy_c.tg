@@ -1,0 +1,51 @@
+calculation clamp(x)
+  if x > 100 then store 100 in x endif
+  if x < 0 then store 0 in x endif
+  returns x
+endcalc
+
+path line(len)
+  store @x - @y + @offset in dist
+  while dist < 0 do
+    add 10 to dist
+  done
+  while dist > 10 do
+    sub 10 from dist
+  done
+  store clamp(|dist - 5| * 60 - 100) in @red
+  store clamp(100 - |dist * 30 - 100|) in @green
+  store clamp(100 - |dist * 30 - 200|) in @blue
+  walk len
+endpath
+
+path recurse(len)
+  if len < @minlen then
+    path line(len)
+  else
+    store len / sqrt(2) in newlen
+    turn right 45
+    path recurse(newlen)
+    turn left 90
+    path recurse(newlen)
+    turn right 45
+  endif
+endpath
+
+begin
+  store 0 in @delay
+  store 0.2 in @minlen
+  store 0 in @offset
+  jump back 10
+  turn left 90
+  jump 8
+  turn right 90
+  path recurse(20)
+  store 5 in @offset
+  turn left 180
+  jump 5
+  turn left 90
+  jump 7.5
+  turn right 90
+  path recurse(10)
+  stop
+end

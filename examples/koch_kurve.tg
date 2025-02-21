@@ -1,0 +1,57 @@
+calculation clamp(x)
+  if x > 100 then store 100 in x endif
+  if x < 0 then store 0 in x endif
+  returns x
+endcalc
+
+path line(len)
+  while @walked > 100 do
+    sub 100 from @walked
+  done
+  store clamp(|@walked - 50| * 6 - 100) in @red
+  store clamp(100 - |@walked * 3 - 100|) in @green
+  store clamp(100 - |@walked * 3 - 200|) in @blue
+  walk len
+  add len to @walked
+endpath
+
+path recurse(len)
+  if len < @minlen then
+    path line(len)
+  else
+    store len / 3 in newlen
+    path recurse(newlen)
+    turn left 60
+    path recurse(newlen)
+    turn right 120
+    path recurse(newlen)
+    turn left 60
+    path recurse(newlen)
+  endif
+endpath
+
+path flocke(len)
+  path recurse(len)
+  turn right 120
+  path recurse(len)
+  turn right 120
+  path recurse(len)
+  turn right 120
+  if len > 10 * @minlen then
+    add 10/3 to @offset
+    jump len / 3
+    turn right 30
+    path flocke(len / sqrt(3))
+  endif
+endpath
+
+begin
+  store 0.1 in @minlen
+  store 0 in @walked
+  jump back 12
+  turn left 90
+  jump 7
+  turn right 90
+  path flocke(24)
+  stop
+end
