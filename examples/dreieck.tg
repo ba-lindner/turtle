@@ -21,6 +21,6 @@ begin
   turn left 90
   jump back 14
   turn right 90
-  path frak(5, 16)
+  path frak(6, 16)
   stop
 end

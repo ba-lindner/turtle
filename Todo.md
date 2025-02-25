@@ -7,10 +7,10 @@
   not be too familiar with english, a german translation
   (not only of error messages, but also all the keywords of the language itself)
   would be rather helpful.
-* Write a shift-reduce parser. Just for fun.
 
 ## Syntax checking
 
+* check number of arguments for function calls
 * Better Error Messages. Ideally, they should be easily
   machine-readable to allow VSCode to highlight errors in source code.
 * Parsing after errors. As Keywords can be easily used to determine
@@ -31,6 +31,7 @@ Actually, nothing to do here.
 
 ## Compiler
 
+* use #ifdef for debug printf statements in turtleinterf.c instead of turtleinterf_debug.c
 * Decide on what should actually be done as part of the compilation step
 * Introduce autodiscovery of sdl (on *nix with `sdl-config`)
 * maybe produce a makefile

@@ -1,10 +1,10 @@
+use std::fmt::Display;
+
 use crate::{
-    prog::lexer::LexToken,
-    prog::{CalcDef, PathDef},
+    prog::{lexer::LexToken, CalcDef, PathDef},
     tokens::{keywords::Keyword, predef_vars::PredefVar, *},
-    FilePos, Identified, Pos, Positionable,
+    FilePos, Identified, Pos, Positionable, SymbolTable,
 };
-use indexmap::IndexMap;
 
 /// Result of parsing a specific node
 type PRes<T> = Result<T, Pos<ParseError>>;
@@ -13,15 +13,15 @@ type PRes<T> = Result<T, Pos<ParseError>>;
 pub struct Parser<'a> {
     ltokens: Vec<Pos<LexToken>>,
     pos: usize,
-    ident: &'a mut IndexMap<String, Identified>,
+    symbols: &'a mut SymbolTable,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(ident: &'a mut IndexMap<String, Identified>, ltokens: Vec<Pos<LexToken>>) -> Self {
+    pub fn new(symbols: &'a mut SymbolTable, ltokens: Vec<Pos<LexToken>>) -> Self {
         Self {
             ltokens,
             pos: 0,
-            ident,
+            symbols,
         }
     }
 
@@ -62,7 +62,7 @@ impl<'a> Parser<'a> {
 
     fn expect_keyword(&mut self, kw: Keyword) -> PRes<()> {
         if !self.match_keyword(kw) {
-            Err(self.unexpected_token(TokenExpectation::ExactKeyword(LexToken::Keyword(kw))))
+            Err(self.unexpected_token(TokenExpectation::ExactKeyword(kw)))
         } else {
             Ok(())
         }
@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
 
     fn expect_symbol(&mut self, c: char) -> PRes<()> {
         if !self.match_symbol(c) {
-            Err(self.unexpected_token(TokenExpectation::ExactSymbol(LexToken::Symbol(c))))
+            Err(self.unexpected_token(TokenExpectation::ExactSymbol(c)))
         } else {
             Ok(())
         }
@@ -97,9 +97,9 @@ impl<'a> Parser<'a> {
     fn set_ident_type(&mut self, ident: usize, kind: Identified) -> PRes<()> {
         let pos = self.curr_pos();
         let old_kind = self
-            .ident
+            .symbols
             .get_index_mut(ident)
-            .ok_or(ParseError::MissingIdentifier(ident).attach_pos(pos))?
+            .expect("should be set by parser")
             .1;
         if *old_kind != Identified::Unknown && *old_kind != kind {
             Err(ParseError::ConflictingIdentifiers(ident, *old_kind, kind).attach_pos(pos))
@@ -111,7 +111,6 @@ impl<'a> Parser<'a> {
 
     fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
         if self.match_symbol('(') {
             while let Some(LexToken::Identifier(arg)) = self.lookahead() {
@@ -124,6 +123,7 @@ impl<'a> Parser<'a> {
                 self.expect_symbol(',')?;
             }
         }
+        self.set_ident_type(name, Identified::Path(args.len()))?;
         Ok(ParseToken::PathDef(PathDef {
             name,
             args,
@@ -133,19 +133,21 @@ impl<'a> Parser<'a> {
 
     fn parse_calc(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Calc)?;
         let mut args = Vec::new();
-        if self.match_symbol('(') {
-            while let Some(LexToken::Identifier(arg)) = self.lookahead() {
-                self.set_ident_type(arg, Identified::LocalVar)?;
-                args.push(arg);
-                self.pos += 1;
-                if self.match_symbol(')') {
-                    break;
-                }
-                self.expect_symbol(',')?;
+        self.expect_symbol('(')?;
+        while let Some(LexToken::Identifier(arg)) = self.lookahead() {
+            self.set_ident_type(arg, Identified::LocalVar)?;
+            args.push(arg);
+            self.pos += 1;
+            if self.match_symbol(')') {
+                break;
             }
+            self.expect_symbol(',')?;
         }
+        if args.is_empty() {
+            self.expect_symbol(')')?;
+        }
+        self.set_ident_type(name, Identified::Calc(args.len()))?;
         let stmts = self.parse_statements(begin, Keyword::Returns)?;
         let ret = self.parse_expr()?;
         self.expect_keyword(Keyword::Endcalc)?;
@@ -163,7 +165,7 @@ impl<'a> Parser<'a> {
 
     fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
         let Some(LexToken::Keyword(kw)) = self.lookahead() else {
-            return Err(self.unexpected_token(TokenExpectation::AnyKeyword));
+            return Err(self.unexpected_token(TokenExpectation::Statement));
         };
         let fp = self.curr_pos();
         self.pos += 1;
@@ -188,10 +190,10 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Statement::Store(expr, var))
             }
-            Keyword::Add => self.parse_calc_stm(Keyword::To, BiOperator::Add),
-            Keyword::Sub => self.parse_calc_stm(Keyword::From, BiOperator::Sub),
-            Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul),
-            Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div),
+            Keyword::Add => self.parse_calc_stm(Keyword::To, BiOperator::Add, false),
+            Keyword::Sub => self.parse_calc_stm(Keyword::From, BiOperator::Sub, false),
+            Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul, true),
+            Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div, true),
             Keyword::Mark => Ok(Statement::Mark),
             Keyword::If => self.parse_if(fp),
             Keyword::Do => {
@@ -258,7 +260,6 @@ impl<'a> Parser<'a> {
 
     fn parse_path_call(&mut self) -> PRes<Statement> {
         let name = self.match_identifier()?;
-        self.set_ident_type(name, Identified::Path)?;
         let mut args = Vec::new();
         if self.match_symbol('(') && !self.match_symbol(')') {
             args.push(self.parse_expr()?);
@@ -270,13 +271,22 @@ impl<'a> Parser<'a> {
                 args.push(self.parse_expr()?);
             }
         }
+        self.set_ident_type(name, Identified::Path(args.len()))?;
         Ok(Statement::PathCall(name, args))
     }
 
-    fn parse_calc_stm(&mut self, mid: Keyword, op: BiOperator) -> PRes<Statement> {
-        let var = self.parse_variable()?;
-        self.expect_keyword(mid)?;
-        let val = self.parse_expr()?;
+    fn parse_calc_stm(&mut self, mid: Keyword, op: BiOperator, var_first: bool) -> PRes<Statement> {
+        let (var, val) = if var_first {
+            let var = self.parse_variable()?;
+            self.expect_keyword(mid)?;
+            let val = self.parse_expr()?;
+            (var, val)
+        } else {
+            let val = self.parse_expr()?;
+            self.expect_keyword(mid)?;
+            let var = self.parse_variable()?;
+            (var, val)
+        };
         Ok(Statement::Calc { val, var, op })
     }
 
@@ -467,7 +477,6 @@ impl<'a> Parser<'a> {
         } else if let Some(LexToken::Identifier(id)) = self.lookahead() {
             self.pos += 1;
             if self.match_symbol('(') {
-                self.set_ident_type(id, Identified::Calc)?;
                 let mut args = Vec::new();
                 if !self.match_symbol(')') {
                     args.push(self.parse_expr()?);
@@ -476,6 +485,7 @@ impl<'a> Parser<'a> {
                         args.push(self.parse_expr()?);
                     }
                 }
+                self.set_ident_type(id, Identified::Calc(args.len()))?;
                 Ok(Expr::CalcCall(id, args))
             } else {
                 self.set_ident_type(id, Identified::LocalVar)?;
@@ -501,9 +511,7 @@ impl<'a> Parser<'a> {
             let op = match kw {
                 Keyword::And => BoolOp::And,
                 Keyword::Or => BoolOp::Or,
-                _ => {
-                    break;
-                }
+                _ => break,
             };
             self.pos += 1;
             conds.push((op, Some(self.parse_single_cond()?)));
@@ -599,26 +607,43 @@ impl Iterator for Parser<'_> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum ParseError {
+    #[error("unexpected token: got {0:?}, expected {1}")]
     UnexpectedToken(LexToken, TokenExpectation),
+    #[error("unknown statement '{0}'")]
     UnknownStatement(Keyword),
+    #[error("end of file reached")]
     UnexpectedEnd,
-    MissingIdentifier(usize),
+    #[error("conflicting use of identifier #{0}: was {1}, now used as {2}")]
     ConflictingIdentifiers(usize, Identified, Identified),
+    #[error("attempted to modify readonly variable @{}", .0.get_str())]
     WriteToReadOnly(PredefVar),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TokenExpectation {
-    AnySymbol,
-    AnyKeyword,
+    Statement,
     BlockStart,
-    ExactKeyword(LexToken),
-    ExactSymbol(LexToken),
+    ExactKeyword(Keyword),
+    ExactSymbol(char),
     AnyIdentifier,
     CmpOperator,
     PredefFunc,
+}
+
+impl Display for TokenExpectation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenExpectation::Statement => write!(f, "begin of statement"),
+            TokenExpectation::BlockStart => write!(f, "begin of function"),
+            TokenExpectation::ExactKeyword(kw) => write!(f, "keyword '{kw}'"),
+            TokenExpectation::ExactSymbol(c) => write!(f, "symbol '{c}'"),
+            TokenExpectation::AnyIdentifier => write!(f, "identifier"),
+            TokenExpectation::CmpOperator => write!(f, "compare operator"),
+            TokenExpectation::PredefFunc => write!(f, "predefined function"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -628,7 +653,7 @@ mod test {
     #[test]
     fn if_branch() {
         let fp = FilePos::new(0, 0);
-        let mut ident = IndexMap::<String, Identified>::new();
+        let mut ident = SymbolTable::new();
         ident.insert(String::from("a"), Identified::LocalVar);
         let mut parse = Parser::new(
             &mut ident,
@@ -662,7 +687,7 @@ mod test {
     #[test]
     fn if_else_branch() {
         let fp = FilePos::new(0, 0);
-        let mut ident = IndexMap::<String, Identified>::new();
+        let mut ident = SymbolTable::new();
         ident.insert(String::from("a"), Identified::LocalVar);
         let mut parse = Parser::new(
             &mut ident,
@@ -710,7 +735,7 @@ mod test {
     #[test]
     fn unfinished_expression() {
         let fp = FilePos::new(0, 0);
-        let mut ident = IndexMap::<String, Identified>::new();
+        let mut ident = SymbolTable::new();
         let mut parse = Parser::new(
             &mut ident,
             vec![
@@ -725,7 +750,7 @@ mod test {
     #[test]
     fn nested_expr() {
         let fp = FilePos::new(0, 0);
-        let mut ident = IndexMap::<String, Identified>::new();
+        let mut ident = SymbolTable::new();
         let mut parse = Parser::new(
             &mut ident,
             vec![

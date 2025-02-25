@@ -45,31 +45,45 @@ enum TCommand {
     Check {
         /// the turtle source file to check
         file: String,
+        #[arg(short = 's', long)]
+        print_symbols: bool,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        TCommand::Run { file, args } => TProgram::from_file(&file).unwrap().interpret(&args),
+        TCommand::Run { file, args } => get_prog(&file).interpret(&args),
         TCommand::Debug {
             file,
             breakpoint: bp,
             args,
-        } => TProgram::from_file(&file).unwrap().debug(&args, &bp),
+        } => get_prog(&file).debug(&args, &bp),
         TCommand::Compile {
             file,
             debug,
             no_cache,
-        } => compile(TProgram::from_file(&file).unwrap(), &file, no_cache, debug),
-        TCommand::Check { file } => {
-            TProgram::from_file(&file).unwrap();
-            println!("no syntax errors found");
+        } => compile(get_prog(&file), &file, no_cache, debug),
+        TCommand::Check { file , print_symbols} => {
+            match std::fs::read_to_string(file) {
+                Ok(code) => TProgram::check_code(code, print_symbols),
+                Err(why) => eprintln!("{why}"),
+            }
         }
     }
 }
 
-fn compile(prog: TProgram, filename: &str, recomp: bool, debug: bool) {
+fn get_prog(file: &str) -> TProgram {
+    match TProgram::from_file(file) {
+        Ok(prog) => prog,
+        Err(why) => {
+            eprintln!("invalid turtle program: {why}");
+            std::process::exit(1)
+        }
+    }
+}
+
+fn compile(prog: TProgram, filename: &str, no_cache: bool, debug: bool) {
     let mut cc = turtle::CComp::new(prog);
     let resfile = format!(
         "ccomp\\{}",
@@ -92,7 +106,7 @@ fn compile(prog: TProgram, filename: &str, recomp: bool, debug: bool) {
         .unwrap()
         .wait()
         .unwrap();
-    if recomp {
+    if no_cache {
         Command::new("gcc")
             .args([
                 "-Wall",

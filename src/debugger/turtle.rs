@@ -66,7 +66,9 @@ impl Turtle {
         let end = self.map_coord(next_pos);
         self.window.draw_line(start, end);
         // TODO: increase responsiveness with high delays
-        std::thread::sleep(Duration::from_millis(self.delay as u64));
+        if self.delay > 0.0 {
+            std::thread::sleep(Duration::from_millis(self.delay as u64));
+        }
         if self.window.exit_pressed() {
             std::process::exit(1);
         }

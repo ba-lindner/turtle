@@ -35,7 +35,7 @@ impl Display for FilePos {
 /// Attach [`FilePos`] to any type `T`, mostly tokens
 ///
 /// Implements [`Deref`](std::ops::Deref) to access inner value
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Pos<T> {
     pos: FilePos,
     token: T,

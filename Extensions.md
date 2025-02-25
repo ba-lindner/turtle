@@ -7,6 +7,34 @@ Quite a few extensions to the turtle programming language can be thought of
 
 See Todo.md for details.
 
+## Easier parameters
+
+Add the ability to define global variables that are automatically
+filled with command-line arguments or default values.
+
+Syntax:
+```
+param <identifier> = <expr>
+```
+
+Example:
+```
+param start_length = 5
+param min_length = 0.1
+```
+
+The given `<expr>` should only be evaluated if no fitting argument is provided.
+That is, each `param ...` directive is strictly equivalent to the following block
+inserted at the start of the main block, where `<idx>` is determined by the order
+of `param`s.
+```
+if @<idx> <> 0 then
+  store @<idx> in @<idx>
+else
+  store <expr> in @<name>
+endif
+```
+
 ## Multithreading
 
 Parallel turtle programs can be achieved with the introduction

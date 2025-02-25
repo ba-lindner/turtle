@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use std::num::{ParseFloatError, ParseIntError};
 
 use crate::tokens::predef_vars::PredefVar;
@@ -16,7 +15,7 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     last_col: usize,
-    pub symbols: &'a mut SymbolTable,
+    symbols: &'a mut SymbolTable,
 }
 
 impl<'a> Lexer<'a> {
@@ -82,8 +81,14 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.next_char() {
             if c == '.' && state == NumState::Initial {
                 state = NumState::Fraction;
-            } else if (c == 'e' || c == 'E') && state == NumState::Fraction {
+            } else if (c == 'e' || c == 'E') && (state == NumState::Fraction || state == NumState::Initial) {
                 state = NumState::Exponent;
+                if let Some(next) = self.lookahead() {
+                    if next == '+' || next == '-' {
+                        str.push(next);
+                        self.next_char();
+                    }
+                }
             } else if !c.is_alphanumeric() {
                 self.put_back();
                 break;
@@ -221,37 +226,12 @@ pub enum LexToken {
     Identifier(usize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum LexError {
-    EndOfInput,
-    UnknownEscapeCharacter(char),
-    CharLiteralNotClosed,
-    IntParseError(ParseIntError),
-    FloatParseError(ParseFloatError),
-}
-
-impl Display for LexError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        match self {
-            Self::EndOfInput => write!(f, "End of input reached before token was completed"),
-            Self::UnknownEscapeCharacter(c) => write!(f, "Unknown escape character '{c}'"),
-            Self::CharLiteralNotClosed => write!(f, "Char literal not closed"),
-            Self::IntParseError(err) => err.fmt(f),
-            Self::FloatParseError(err) => err.fmt(f),
-        }
-    }
-}
-
-impl From<ParseIntError> for LexError {
-    fn from(value: ParseIntError) -> Self {
-        Self::IntParseError(value)
-    }
-}
-
-impl From<ParseFloatError> for LexError {
-    fn from(value: ParseFloatError) -> Self {
-        Self::FloatParseError(value)
-    }
+    #[error("{0}")]
+    IntParseError(#[from] ParseIntError),
+    #[error("{0}")]
+    FloatParseError(#[from] ParseFloatError),
 }
 
 #[cfg(test)]

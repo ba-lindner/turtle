@@ -291,14 +291,7 @@ impl BiOperator {
             Self::Add => val1 + val2,
             Self::Sub => val1 - val2,
             Self::Mul => val1 * val2,
-            Self::Div => {
-                if val2 == 0.0 {
-                    eprintln!("oh no: maths just broke");
-                    0.0
-                } else {
-                    val1 / val2
-                }
-            }
+            Self::Div => val1 / val2,
             Self::Exp => val1.powf(val2),
         }
     }

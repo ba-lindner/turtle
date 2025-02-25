@@ -1,6 +1,5 @@
 use crate::{
-    tokens::{ArgDefList, Expr, ParseToken, Block},
-    Debugger, Identified, SymbolTable, TurtleError,
+    debugger::ItpRunner, tokens::{ArgDefList, Block, Expr, ParseToken}, DebugRunner, Identified, SymbolTable, TurtleError
 };
 
 use lexer::Lexer;
@@ -21,11 +20,11 @@ impl RawProg {
         match item {
             ParseToken::PathDef(def) => self.paths.push(def),
             ParseToken::CalcDef(def) => self.calcs.push(def),
-            ParseToken::StartBlock(stm) => {
-                if self.main.is_some() {
-                    return Err(TurtleError::MultipleMains);
+            ParseToken::StartBlock(block) => {
+                if let Some(main) = &self.main {
+                    return Err(TurtleError::MultipleMains(main.begin, block.begin));
                 }
-                self.main = Some(stm);
+                self.main = Some(block);
             }
         }
         Ok(())
@@ -76,17 +75,67 @@ impl TProgram {
         Ok(this)
     }
 
+    pub fn check_code(code: String, print_symbols: bool) {
+        let mut symbols = SymbolTable::new();
+        let pr_sym = |symbols: &SymbolTable| {
+            if print_symbols {
+                for (idx, (name, kind)) in symbols.iter().enumerate() {
+                    println!("#{idx:<3} {name:<20} {kind}")
+                }
+            }
+        };
+
+        let ltokens = match Lexer::new(&mut symbols, code.chars()).collect_tokens() {
+            Ok(tokens) => tokens,
+            Err(why) => {
+                eprintln!("{why}");
+                pr_sym(&symbols);
+                return;
+            }
+        };
+        let parser = Parser::new(&mut symbols, ltokens);
+        let mut raw = RawProg::default();
+        for item in parser {
+            match item {
+                Ok(item) => if let Err(why) = raw.insert_item(item) {
+                    eprintln!("{why}");
+                    pr_sym(&symbols);
+                    return;
+                }
+                Err(why) => {
+                    eprintln!("{} at {}", *why, why.get_pos());
+                    pr_sym(&symbols);
+                    return;
+                }
+            }
+        }
+        let prog = match raw.finish(symbols) {
+            Ok(prog) => prog,
+            Err(why) => {
+                eprintln!("{why}");
+                return;
+            }
+        };
+        if let Err(why) = prog.check_idents() {
+            eprintln!("{why}");
+            pr_sym(&prog.symbols);
+            return;
+        }
+    }
+
     fn check_idents(&self) -> Result<(), TurtleError> {
         for (id, (_, kind)) in self.symbols.iter().enumerate() {
             match kind {
                 Identified::Unknown => {
                     return Err(TurtleError::UnidentifiedIdentifier(id));
                 }
-                Identified::Path => {
-                    self.get_path(id)?;
+                Identified::Path(args) => {
+                    let path = self.get_path(id)?;
+                    assert_eq!(path.args.len(), *args);
                 }
-                Identified::Calc => {
-                    self.get_calc(id)?;
+                Identified::Calc(args) => {
+                    let calc = self.get_calc(id)?;
+                    assert_eq!(calc.args.len(), *args);
                 }
                 _ => {}
             }
@@ -108,21 +157,22 @@ impl TProgram {
             .ok_or(TurtleError::MissingDefinition(name))
     }
 
-    pub fn debugger<'p>(&'p self, args: &[String], kind: &str) -> Debugger<'p> {
-        let title = if let Some(name) = &self.name {
+    pub fn title(&self, kind: &str) -> String {
+        if let Some(name) = &self.name {
             format!("Turtle {kind} - {name}")
         } else {
             format!("Turtle {kind}")
-        };
-        Debugger::new(self, args, &title)
+        }
     }
 
     pub fn interpret(&self, args: &[String]) {
-        self.debugger(args, "Interpreter").interpret();
+        ItpRunner::new(self, args, &self.title("Interpreter")).run();
     }
 
-    pub fn debug(&self, args: &[String], bp: &[String]) {
-        self.debugger(args, "Debugger").run(bp);
+    pub fn debug(&self, args: &[String], breakpoints: &[String]) {
+        let mut dbg = DebugRunner::new(self, args, &self.title("Debugger"));
+        dbg.set_breakpoints(breakpoints);
+        dbg.run();
     }
 }
 
