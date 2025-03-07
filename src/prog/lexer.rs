@@ -1,7 +1,6 @@
-use std::num::{ParseFloatError, ParseIntError};
+use std::{fmt::Display, num::{ParseFloatError, ParseIntError}};
 
-use crate::tokens::predef_vars::PredefVar;
-use crate::{tokens::keywords::Keyword, FilePos, Identified, Pos};
+use crate::{tokens::{PredefVar, Keyword}, FilePos, Identified, Pos};
 use crate::{Positionable, SymbolTable, TurtleError};
 
 pub type LResult = Pos<Result<LexToken, LexError>>;
@@ -56,6 +55,7 @@ impl<'a> Lexer<'a> {
                 self.put_back();
                 self.match_num_literal('0')
             }
+            '\'' => self.match_string_literal(),
             c if c.is_ascii_digit() => self.match_num_literal(c),
             c if c.is_alphabetic() || c == '_' => self.match_identifier(),
             c => Ok(LexToken::Symbol(c)),
@@ -133,6 +133,23 @@ impl<'a> Lexer<'a> {
             let idx = self.symbols.len();
             self.symbols.insert(str, Identified::GlobalVar);
             Ok(LexToken::GlobalVar(idx))
+        }
+    }
+
+    fn match_string_literal(&mut self) -> Result<LexToken, LexError> {
+        let mut acc = String::new();
+        loop {
+            match self.next_char().ok_or(LexError::UnclosedString)? {
+                '\'' => return Ok(LexToken::StringLiteral(acc)),
+                '\\' => acc.push(match self.next_char().ok_or(LexError::UnclosedString)? {
+                    '\'' => '\'',
+                    '\\' => '\\',
+                    'n' => '\n',
+                    't' => '\t',
+                    c => return Err(LexError::UnknownEscapeChar(c)),
+                }),
+                c => acc.push(c),
+            }
         }
     }
 
@@ -215,15 +232,31 @@ impl Iterator for Lexer<'_> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum LexToken {
     Symbol(char),
     IntLiteral(i64),
     FloatLiteral(f64),
+    StringLiteral(String),
     Keyword(Keyword),
     GlobalVar(usize),
     PredefVar(PredefVar),
     Identifier(usize),
+}
+
+impl Display for LexToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LexToken::Symbol(c) => write!(f, "symbol `{c}`"),
+            LexToken::IntLiteral(i) => write!(f, "number `{i}`"),
+            LexToken::FloatLiteral(val) => write!(f, "number `{val}`"),
+            LexToken::StringLiteral(s) => write!(f, "string `{s}`"),
+            LexToken::Keyword(kw) => write!(f, "keyword `{kw}`"),
+            LexToken::GlobalVar(v) => write!(f, "global variable #{v}"),
+            LexToken::PredefVar(pdv) => write!(f, "global variable `@{}`", pdv.get_str()),
+            LexToken::Identifier(id) => write!(f, "identifier #{id}"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -232,6 +265,10 @@ pub enum LexError {
     IntParseError(#[from] ParseIntError),
     #[error("{0}")]
     FloatParseError(#[from] ParseFloatError),
+    #[error("unknown escape character \\{0}")]
+    UnknownEscapeChar(char),
+    #[error("string literal not closed")]
+    UnclosedString,
 }
 
 #[cfg(test)]

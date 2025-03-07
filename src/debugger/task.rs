@@ -2,7 +2,7 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 
 use parking_lot::Mutex;
 
-use crate::{debugger::varlist::VarList, pos::FilePos, tokens::{Block, Cond, Expr, Statement}, TProgram};
+use crate::{debugger::varlist::VarList, pos::FilePos, tokens::{Block, Expr, Statement, Value}, TProgram};
 
 use super::{turtle::Turtle, DbgAction};
 
@@ -77,22 +77,22 @@ impl<'p> DebugTask<'p> {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
-                self.turtle.lock().move_dist(dist, *back, *draw);
+                self.turtle.lock().move_dist(dist.num(), *back, *draw);
             }
             Statement::MoveHome(draw) => self.turtle.lock().move_home(*draw),
             Statement::Turn { left, by } => {
                 let angle = self.dbg_expr(by).await;
-                let new_dir = self.turtle.lock().dir + if *left { angle } else { -angle };
+                let new_dir = self.turtle.lock().dir + if *left { angle.num() } else { -angle.num() };
                 self.turtle.lock().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
                 let new_dir = self.dbg_expr(expr).await;
-                self.turtle.lock().set_dir(new_dir);
+                self.turtle.lock().set_dir(new_dir.num());
             }
             Statement::Color(ex1, ex2, ex3) => {
-                let r = self.dbg_expr(ex1).await;
-                let g = self.dbg_expr(ex2).await;
-                let b = self.dbg_expr(ex3).await;
+                let r = self.dbg_expr(ex1).await.num();
+                let g = self.dbg_expr(ex2).await.num();
+                let b = self.dbg_expr(ex3).await.num();
                 self.turtle.lock().set_col(r, g, b);
             }
             Statement::Clear => self.turtle.lock().window.clear(),
@@ -103,8 +103,8 @@ impl<'p> DebugTask<'p> {
                 let args = self.dbg_args(args).await;
                 assert_eq!(path.args.len(), args.len());
                 let mut vars = VarList::new();
-                for (i, arg) in args.iter().enumerate() {
-                    vars.set_var(path.args[i], *arg);
+                for (i, arg) in args.into_iter().enumerate() {
+                    vars.set_var(path.args[i].0, arg);
                 }
                 self.turtle.lock().stack.push((Some(*id), vars));
                 self.dbg_block(&path.body).await;
@@ -117,24 +117,25 @@ impl<'p> DebugTask<'p> {
             Statement::Calc { var, val, op } => {
                 let lhs = self.turtle.lock().get_var(var);
                 let rhs = self.dbg_expr(val).await;
-                self.turtle.lock().set_var(var, op.calc(lhs, rhs));
+                self.turtle.lock().set_var(var, op.eval(&lhs, &rhs));
             }
             Statement::Mark => self.turtle.lock().new_mark(),
             Statement::MoveMark(draw) => self.turtle.lock().move_mark(*draw),
+            Statement::Print(expr) => println!("Turtle says: {}", self.dbg_expr(expr).await.string()),
             Statement::IfBranch(cond, stmts) => {
-                if self.dbg_cond(cond).await {
+                if self.dbg_expr(cond).await.bool() {
                     self.dbg_block(stmts).await;
                 }
             }
             Statement::IfElseBranch(cond, if_stmts, else_stmts) => {
-                if self.dbg_cond(cond).await {
+                if self.dbg_expr(cond).await.bool() {
                     self.dbg_block(if_stmts).await;
                 } else {
                     self.dbg_block(else_stmts).await;
                 }
             }
             Statement::DoLoop(expr, stmts) => {
-                let count = self.dbg_expr(expr).await.floor();
+                let count = self.dbg_expr(expr).await.num().floor();
                 for _ in 0..count as isize {
                     self.dbg_block(stmts).await;
                 }
@@ -147,51 +148,52 @@ impl<'p> DebugTask<'p> {
                 step,
                 body,
             } => {
-                let init = self.dbg_expr(from).await;
-                let end = self.dbg_expr(to).await;
+                let init = self.dbg_expr(from).await.num();
+                let end = self.dbg_expr(to).await.num();
                 let step = if *up { 1.0 } else { -1.0 }
                     * match step {
-                        Some(expr) => self.dbg_expr(expr).await,
+                        Some(expr) => self.dbg_expr(expr).await.num(),
                         None => 1.0,
                     };
-                self.turtle.lock().set_var(counter, init);
-                while *up != (self.turtle.lock().get_var(counter) >= end) {
+                self.turtle.lock().set_var(counter, Value::Number(init));
+                while *up != (self.turtle.lock().get_var(counter).num() >= end) {
                     self.dbg_block(body).await;
-                    let next_val = self.turtle.lock().get_var(counter) + step;
-                    self.turtle.lock().set_var(counter, next_val);
+                    let next_val = self.turtle.lock().get_var(counter).num() + step;
+                    self.turtle.lock().set_var(counter, Value::Number(next_val));
                 }
             }
             Statement::WhileLoop(cond, stmts) => {
-                while self.dbg_cond(cond).await {
+                while self.dbg_expr(cond).await.bool() {
                     self.dbg_block(stmts).await;
                 }
             }
             Statement::RepeatLoop(cond, stmts) => {
                 self.dbg_block(stmts).await;
-                while !self.dbg_cond(cond).await {
+                while !self.dbg_expr(cond).await.bool() {
                     self.dbg_block(stmts).await;
                 }
             }
         }
     }
 
-    async fn dbg_expr(&mut self, expr: &Expr) -> f64 {
+    async fn dbg_expr(&mut self, expr: &Expr) -> Value {
         let fut = async {
             match expr {
-                Expr::Const(val) => *val,
+                Expr::Const(val) => val.clone(),
                 Expr::Variable(var) => self.turtle.lock().get_var(var),
                 Expr::BiOperation(lhs, op, rhs) => {
                     let lhs = self.dbg_expr(lhs).await;
                     let rhs = self.dbg_expr(rhs).await;
-                    op.calc(lhs, rhs)
+                    op.eval(&lhs, &rhs)
                 }
-                Expr::Negate(expr) => -self.dbg_expr(expr).await,
-                Expr::Absolute(expr) => self.dbg_expr(expr).await.abs(),
+                Expr::UnOperation(op, expr) => {
+                    let val = self.dbg_expr(expr).await;
+                    op.eval(&val)
+                }
+                Expr::Absolute(expr) => Value::Number(self.dbg_expr(expr).await.num().abs()),
                 Expr::Bracket(expr) => self.dbg_expr(expr).await,
-                Expr::FuncCall(pdf, args) => {
-                    let args = self.dbg_args(args).await;
-                    pdf.calc(&args)
-                }
+                Expr::Convert(from, to) => self.dbg_expr(from).await.convert(*to),
+                Expr::FuncCall(pdf, args) => pdf.eval(&self.dbg_args(args).await),
                 Expr::CalcCall(id, args) => {
                     let calc = self
                         .prog
@@ -200,8 +202,8 @@ impl<'p> DebugTask<'p> {
                     let args = self.dbg_args(args).await;
                     assert_eq!(calc.args.len(), args.len());
                     let mut vars = VarList::new();
-                    for (i, arg) in args.iter().enumerate() {
-                        vars.set_var(calc.args[i], *arg);
+                    for (i, arg) in args.into_iter().enumerate() {
+                        vars.set_var(calc.args[i].0, arg);
                     }
                     self.turtle.lock().stack.push((Some(*id), vars));
                     self.dbg_block(&calc.body).await;
@@ -214,24 +216,7 @@ impl<'p> DebugTask<'p> {
         Box::pin(fut).await
     }
 
-    async fn dbg_cond(&mut self, cond: &Cond) -> bool {
-        let fut = async {
-            match cond {
-                Cond::Bracket(bcond) => self.dbg_cond(bcond).await,
-                Cond::Cmp(lhs, op, rhs) => {
-                    let lhs = self.dbg_expr(lhs).await;
-                    let rhs = self.dbg_expr(rhs).await;
-                    op.compare(lhs, rhs)
-                }
-                Cond::And(lhs, rhs) => self.dbg_cond(lhs).await && self.dbg_cond(rhs).await,
-                Cond::Or(lhs, rhs) => self.dbg_cond(lhs).await || self.dbg_cond(rhs).await,
-                Cond::Not(sub) => !self.dbg_cond(sub).await,
-            }
-        };
-        Box::pin(fut).await
-    }
-
-    async fn dbg_args(&mut self, args: &[Expr]) -> Vec<f64> {
+    async fn dbg_args(&mut self, args: &[Expr]) -> Vec<Value> {
         let mut res = Vec::with_capacity(args.len());
         for arg in args {
             res.push(self.dbg_expr(arg).await);

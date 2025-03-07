@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::tokens::{
-    predef_vars::PredefVar, BiOperator, Cond, Expr, PredefFunc, Statement, Block, Variable,
+    PredefVar, BiOperator, Expr, PredefFunc, Statement, Block, Variable,
 };
 use crate::{Identified, TProgram};
 
@@ -41,11 +41,11 @@ impl CComp {
         ];
         // function prototypes
         for pathdef in &self.prog.paths {
-            let args = self.comp_args(&pathdef.args, |a| format!("double {}", self.get_ident(*a)));
+            let args = self.comp_args(&pathdef.args, |a| format!("double {}", self.get_ident(a.0)));
             content.push(format!("void {}({});", self.get_ident(pathdef.name), args));
         }
         for calcdef in &self.prog.calcs {
-            let args = self.comp_args(&calcdef.args, |a| format!("double {}", self.get_ident(*a)));
+            let args = self.comp_args(&calcdef.args, |a| format!("double {}", self.get_ident(a.0)));
             content.push(format!(
                 "double {}({});",
                 self.get_ident(calcdef.name),
@@ -69,9 +69,9 @@ impl CComp {
         for pathdef in &self.prog.paths {
             let mut ctx = context.clone();
             for arg in &pathdef.args {
-                ctx.insert(*arg, true);
+                ctx.insert(arg.0, true);
             }
-            let args = self.comp_args(&pathdef.args, |a| format!("double {}", self.get_ident(*a)));
+            let args = self.comp_args(&pathdef.args, |a| format!("double {}", self.get_ident(a.0)));
             content.push(String::new());
             content.push(format!(
                 "void {}({}) {{",
@@ -84,9 +84,9 @@ impl CComp {
         for calcdef in &self.prog.calcs {
             let mut ctx = context.clone();
             for arg in &calcdef.args {
-                ctx.insert(*arg, true);
+                ctx.insert(arg.0, true);
             }
-            let args = self.comp_args(&calcdef.args, |a| format!("double {}", self.get_ident(*a)));
+            let args = self.comp_args(&calcdef.args, |a| format!("double {}", self.get_ident(a.0)));
             content.push(String::new());
             content.push(format!(
                 "double {}({}) {{",
@@ -175,9 +175,10 @@ impl CComp {
                 self.comp_expr(ctx, val),
             )],
             Statement::Mark => vec![String::from("__ttl_set_mark();")],
+            Statement::Print(_) => todo!(),
             Statement::MoveMark(draw) => vec![format!("__ttl_load_mark({draw});")],
             Statement::IfBranch(cond, stmts) => {
-                let mut res = vec![format!("if ({}) {{", self.comp_cond(ctx, cond))];
+                let mut res = vec![format!("if ({}) {{", self.comp_expr(ctx, cond))];
                 ctx.nesting += 1;
                 res.append(&mut self.comp_block(ctx, stmts));
                 ctx.nesting -= 1;
@@ -185,7 +186,7 @@ impl CComp {
                 res
             }
             Statement::IfElseBranch(cond, if_branch, else_branch) => {
-                let mut res = vec![format!("if ({}) {{", self.comp_cond(ctx, cond))];
+                let mut res = vec![format!("if ({}) {{", self.comp_expr(ctx, cond))];
                 ctx.nesting += 1;
                 res.append(&mut self.comp_block(ctx, if_branch));
                 res.push(String::from("} else {"));
@@ -232,7 +233,7 @@ impl CComp {
                 res
             }
             Statement::WhileLoop(cond, body) => {
-                let mut res = vec![format!("while ({}) {{", self.comp_cond(ctx, cond))];
+                let mut res = vec![format!("while ({}) {{", self.comp_expr(ctx, cond))];
                 ctx.nesting += 1;
                 res.append(&mut self.comp_block(ctx, body));
                 ctx.nesting -= 1;
@@ -244,7 +245,7 @@ impl CComp {
                 ctx.nesting += 1;
                 res.append(&mut self.comp_block(ctx, body));
                 ctx.nesting -= 1;
-                res.push(format!("}} while (!({}));", self.comp_cond(ctx, cond)));
+                res.push(format!("}} while (!({}));", self.comp_expr(ctx, cond)));
                 res
             }
         }
@@ -269,9 +270,10 @@ impl CComp {
                     )
                 }
             }
-            Expr::Negate(sub) => format!("-({})", self.comp_expr(ctx, sub)),
+            Expr::UnOperation(op, sub) => format!("{op}({})", self.comp_expr(ctx, sub)),
             Expr::Absolute(sub) => format!("abs({})", self.comp_expr(ctx, sub)),
             Expr::Bracket(sub) => format!("({})", self.comp_expr(ctx, sub)),
+            Expr::Convert(_, _) => todo!(),
             Expr::FuncCall(fnname, args) => {
                 let args = self.comp_args(args, |e| self.comp_expr(ctx, e));
                 let (transform_angle, c_func) = match fnname {
@@ -297,7 +299,7 @@ impl CComp {
 
     fn comp_var(&self, ctx: &mut Context, var: &Variable, act: VarAct) -> String {
         match var {
-            Variable::Local(id) => {
+            Variable::Local(id, _) => {
                 let mut res = self.get_ident(*id);
                 if !ctx.has_var(*id) {
                     ctx.insert(*id, act == VarAct::Init);
@@ -307,7 +309,7 @@ impl CComp {
                 }
                 res
             }
-            Variable::Global(id) => self.get_ident(*id),
+            Variable::Global(id, _) => self.get_ident(*id),
             Variable::GlobalPreDef(pdv) => {
                 if act != VarAct::Read && !pdv.is_writeable() {
                     panic!(
@@ -333,27 +335,27 @@ impl CComp {
         }
     }
 
-    fn comp_cond(&self, ctx: &mut Context, cond: &Cond) -> String {
-        match cond {
-            Cond::Bracket(sub) => format!("({})", self.comp_cond(ctx, sub)),
-            Cond::Cmp(lhs, op, rhs) => format!(
-                "{} {op} {}",
-                self.comp_expr(ctx, lhs),
-                self.comp_expr(ctx, rhs)
-            ),
-            Cond::And(lhs, rhs) => format!(
-                "{} && {}",
-                self.comp_cond(ctx, lhs),
-                self.comp_cond(ctx, rhs)
-            ),
-            Cond::Or(lhs, rhs) => format!(
-                "{} || {}",
-                self.comp_cond(ctx, lhs),
-                self.comp_cond(ctx, rhs)
-            ),
-            Cond::Not(sub) => format!("!{}", self.comp_cond(ctx, sub)),
-        }
-    }
+    // fn comp_cond(&self, ctx: &mut Context, cond: &Cond) -> String {
+    //     match cond {
+    //         Cond::Bracket(sub) => format!("({})", self.comp_cond(ctx, sub)),
+    //         Cond::Cmp(lhs, op, rhs) => format!(
+    //             "{} {op} {}",
+    //             self.comp_expr(ctx, lhs),
+    //             self.comp_expr(ctx, rhs)
+    //         ),
+    //         Cond::And(lhs, rhs) => format!(
+    //             "{} && {}",
+    //             self.comp_cond(ctx, lhs),
+    //             self.comp_cond(ctx, rhs)
+    //         ),
+    //         Cond::Or(lhs, rhs) => format!(
+    //             "{} || {}",
+    //             self.comp_cond(ctx, lhs),
+    //             self.comp_cond(ctx, rhs)
+    //         ),
+    //         Cond::Not(sub) => format!("!{}", self.comp_cond(ctx, sub)),
+    //     }
+    // }
 
     fn comp_args<T, F: FnMut(&T) -> String>(&self, args: &[T], map: F) -> String {
         let mut full = args

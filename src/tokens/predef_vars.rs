@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use super::ValType;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PredefVar {
     Dir,
@@ -82,6 +84,23 @@ impl PredefVar {
             PredefVar::Red => true,
             PredefVar::Blue => true,
             PredefVar::Green => true,
+        }
+    }
+
+    pub fn val_type(&self) -> ValType {
+        match self {
+            PredefVar::Dir |
+            PredefVar::Dist |
+            PredefVar::X |
+            PredefVar::Y |
+            PredefVar::Pi |
+            PredefVar::MaxX |
+            PredefVar::MaxY |
+            PredefVar::Delay |
+            PredefVar::Red |
+            PredefVar::Green |
+            PredefVar::Blue => ValType::Number,
+            PredefVar::Arg(_) => ValType::String,
         }
     }
 }

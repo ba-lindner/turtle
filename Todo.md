@@ -5,8 +5,17 @@
 * Multi-language support. As this tool is intended to be used for
   kids in school taking their first steps into programming who might
   not be too familiar with english, a german translation
-  (not only of error messages, but also all the keywords of the language itself)
-  would be rather helpful.
+  (not only of error messages, but also all the keywords of
+  the language itself) would be rather helpful.
+* Additional checks for potential bugs. As they aren't hard errors,
+  the checks should be optional and prompt on console if execution should
+  be stopped or this position should be ignored on future occurences.
+
+  Included Bugs:
+  - empty loops: `do <expr> times ...` with negative `<expr>`
+  - infinite loops:
+    `counter <var> from <start> [to | downto] <end> [step <step>] ...`
+    with unusual values of `<end>` / `<step>` and `to`/`downto`
 
 ## Syntax checking
 
@@ -22,16 +31,19 @@
 
 Actually, nothing to do here.
 
+Well, you can look at Extensions.md for some ideas.
+
 ## Debugger
 
-* Implement Debug Adapter Protocol. This allows for a far better user interface
-  (if you have VSCode and 2 screens).
+* Implement Debug Adapter Protocol. This allows for a far better
+  user interface (if you have VSCode and 2 screens).
 * Ability to evaluate custom expressions or execute custom statements
 * Ability to set variables
 
 ## Compiler
 
-* use #ifdef for debug printf statements in turtleinterf.c instead of turtleinterf_debug.c
+* use `#ifdef` for debug printf statements in turtleinterf.c
+  instead of turtleinterf_debug.c
 * Decide on what should actually be done as part of the compilation step
 * Introduce autodiscovery of sdl (on *nix with `sdl-config`)
 * maybe produce a makefile

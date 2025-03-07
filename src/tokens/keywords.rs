@@ -94,4 +94,11 @@ keyword_enum! {
     And,
     Or,
     Not,
+    String,
+    Num,
+    Bool,
+    Append,
+    True,
+    False,
+    Print,
 }

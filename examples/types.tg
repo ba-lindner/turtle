@@ -1,0 +1,17 @@
+path stuff(a: num, b: bool, c: string)
+  if b then
+    append string(a) to c
+  else
+    walk inaccurate(a)
+  endif
+  print c + string(b)
+endpath
+
+calculation inaccurate(x: num): num
+  returns x * rand(0.9, 1.1)
+endcalc
+
+begin
+  path stuff(1, true, 'hello')
+  path stuff(2, false, 'turtle')
+end

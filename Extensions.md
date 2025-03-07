@@ -118,6 +118,7 @@ used for comments.
 Strings can be concatenated with the `+` operator or the
 `append <value> to <variable>` statement. A set of methods for common
 string operations should also be provided as some sort of standard library.
+Finally, the statement `print <expr>` will print a string to stdout.
 
 ### Booleans
 

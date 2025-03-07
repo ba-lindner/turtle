@@ -1,5 +1,5 @@
 use crate::{
-    debugger::ItpRunner, tokens::{ArgDefList, Block, Expr, ParseToken}, DebugRunner, Identified, SymbolTable, TurtleError
+    debugger::ItpRunner, tokens::{ArgDefList, Block, Expr, ParseToken, ValType}, DebugRunner, Identified, SymbolTable, TurtleError
 };
 
 use lexer::Lexer;
@@ -189,6 +189,7 @@ pub struct PathDef {
 pub struct CalcDef {
     pub name: usize,
     pub args: ArgDefList,
+    pub ret_ty: ValType,
     pub body: Block,
     pub ret: Expr,
 }

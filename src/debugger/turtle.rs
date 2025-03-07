@@ -1,9 +1,9 @@
-use std::{f64::consts::PI, time::Duration};
+use std::{array, f64::consts::PI, time::Duration};
 
 use sdl2::{pixels::Color, rect::Point};
 
 use crate::{
-    tokens::{predef_vars::PredefVar, Variable},
+    tokens::{PredefVar, Value, Variable},
     SymbolTable,
 };
 
@@ -16,7 +16,7 @@ pub struct Turtle {
     pub stack: Vec<(Option<usize>, VarList)>,
     marks: Vec<((f64, f64), f64)>,
     col: (f64, f64, f64),
-    prog_args: [f64; 9],
+    prog_args: [String; 9],
     max_coord: (f64, f64),
     delay: f64,
     pub window: Window,
@@ -24,14 +24,6 @@ pub struct Turtle {
 
 impl Turtle {
     pub fn new(title: &str, args: &[String]) -> Self {
-        let mut prog_args = [0.0; 9];
-        for i in 0..9 {
-            if i < args.len() {
-                prog_args[i] = args[i].parse::<f64>().unwrap_or(0.0);
-            } else {
-                prog_args[i] = 0.0;
-            }
-        }
         Self {
             pos: (0.0, 0.0),
             dir: 0.0,
@@ -39,7 +31,9 @@ impl Turtle {
             stack: vec![(None, VarList::new())],
             marks: Vec::new(),
             col: (100.0, 100.0, 0.0),
-            prog_args,
+            prog_args: array::from_fn(|idx| {
+                args.get(idx).cloned().unwrap_or_default()
+            }),
             max_coord: (20.0, 15.0),
             delay: 1.0,
             window: Window::new(title),
@@ -105,16 +99,16 @@ impl Turtle {
         self.move_to(mark.0, draw);
     }
 
-    pub fn get_var(&mut self, var: &Variable) -> f64 {
+    pub fn get_var(&mut self, var: &Variable) -> Value {
         match var {
-            Variable::Local(id) => self.stack.last_mut().unwrap().1.get_var(*id),
-            Variable::Global(id) => self.glob.get_var(*id),
-            Variable::GlobalPreDef(pdv) => match pdv {
+            Variable::Local(id, ty) => self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone(),
+            Variable::Global(id, ty) => self.glob.get_var(*id, *ty).clone(),
+            Variable::GlobalPreDef(pdv) => Value::Number(match pdv {
                 PredefVar::Dir => self.dir,
                 PredefVar::Dist => (self.pos.0 * self.pos.0 + self.pos.1 * self.pos.1).sqrt(),
                 PredefVar::X => self.pos.0,
                 PredefVar::Y => self.pos.1,
-                PredefVar::Arg(idx) => self.prog_args[idx - 1],
+                PredefVar::Arg(idx) => return Value::String(self.prog_args[idx - 1].clone()),
                 PredefVar::Pi => PI,
                 PredefVar::MaxX => self.max_coord.0,
                 PredefVar::MaxY => self.max_coord.1,
@@ -122,28 +116,28 @@ impl Turtle {
                 PredefVar::Red => self.col.0,
                 PredefVar::Green => self.col.1,
                 PredefVar::Blue => self.col.2,
-            },
+            }),
         }
     }
 
-    pub fn set_var(&mut self, var: &Variable, val: f64) {
+    pub fn set_var(&mut self, var: &Variable, val: Value) {
         match var {
-            Variable::Local(id) => self.stack.last_mut().unwrap().1.set_var(*id, val),
-            Variable::Global(id) => self.glob.set_var(*id, val),
+            Variable::Local(id, _) => self.stack.last_mut().unwrap().1.set_var(*id, val),
+            Variable::Global(id, _) => self.glob.set_var(*id, val),
             Variable::GlobalPreDef(pdv) => match pdv {
-                PredefVar::MaxX => self.max_coord.0 = val,
-                PredefVar::MaxY => self.max_coord.1 = val,
-                PredefVar::Delay => self.delay = val,
+                PredefVar::MaxX => self.max_coord.0 = val.num(),
+                PredefVar::MaxY => self.max_coord.1 = val.num(),
+                PredefVar::Delay => self.delay = val.num(),
                 PredefVar::Red => {
-                    self.col.0 = val;
+                    self.col.0 = val.num();
                     self.update_col();
                 }
                 PredefVar::Green => {
-                    self.col.1 = val;
+                    self.col.1 = val.num();
                     self.update_col();
                 }
                 PredefVar::Blue => {
-                    self.col.2 = val;
+                    self.col.2 = val.num();
                     self.update_col();
                 }
                 _ => unreachable!("attempted to write to read-only predefined variable"),
