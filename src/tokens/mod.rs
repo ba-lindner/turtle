@@ -1,10 +1,16 @@
-use std::{f64::consts::PI, fmt::{Display, Write as _}};
-
-use crate::{
-    pos::FilePos, prog::{CalcDef, PathDef}, Pos, SymbolTable
+use std::{
+    collections::HashMap,
+    f64::consts::PI,
+    fmt::{Display, Write as _},
 };
 
-pub use expr::{Expr, BiOperator, UnOperator};
+use crate::{
+    pos::FilePos,
+    prog::{CalcDef, PathDef},
+    Pos, SymbolTable, TurtleError,
+};
+
+pub use expr::{BiOperator, Expr, ExprKind, TypeError, UnOperator};
 pub use keywords::Keyword;
 pub use predef_vars::PredefVar;
 pub use statements::{Statement, StmtKind};
@@ -54,26 +60,106 @@ pub enum ParseToken {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Variable {
+pub struct Variable {
+    pub pos: FilePos,
+    pub kind: VariableKind,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum VariableKind {
     Local(usize, ValType),
     Global(usize, ValType),
     GlobalPreDef(PredefVar),
 }
 
+impl VariableKind {
+    pub fn at(self, pos: FilePos) -> Variable {
+        Variable { pos, kind: self }
+    }
+}
+
 impl Variable {
-    pub fn val_type(&self) -> ValType {
-        match self {
-            Variable::Local(_, val_type) => *val_type,
-            Variable::Global(_, val_type) => *val_type,
-            Variable::GlobalPreDef(pdv) => pdv.val_type(),
+    pub fn val_type(
+        &mut self,
+        locals: &mut HashMap<usize, ValType>,
+        globals: &mut HashMap<usize, ValType>,
+    ) -> Result<(ValType, bool, bool), TurtleError> {
+        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
+        match &mut self.kind {
+            VariableKind::Local(idx, vt) => {
+                if let Some(l) = locals.get(idx) {
+                    if *vt == ValType::Any {
+                        *vt = *l;
+                    } else {
+                        vt.assert(*l).map_err(e_map)?;
+                    }
+                }
+                Ok((*vt, *vt != ValType::Any, true))
+            }
+            VariableKind::Global(idx, vt) => {
+                if let Some(g) = globals.get(idx) {
+                    if *vt == ValType::Any {
+                        *vt = *g;
+                    } else {
+                        vt.assert(*g).map_err(e_map)?;
+                    }
+                }
+                Ok((*vt, true, *vt != ValType::Any))
+            }
+            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(), true, true)),
         }
+    }
+
+    pub fn expect_type(
+        &mut self,
+        ty: ValType,
+        locals: &mut HashMap<usize, ValType>,
+        globals: &mut HashMap<usize, ValType>,
+    ) -> Result<(), TurtleError> {
+        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
+        match &mut self.kind {
+            VariableKind::Local(idx, vt) => {
+                if *vt == ValType::Any {
+                    if let Some(l) = locals.get(idx) {
+                        l.assert(ty).map_err(e_map)?;
+                        *vt = *l;
+                    } else {
+                        locals.insert(*idx, ty);
+                        *vt = ty;
+                    }
+                } else {
+                    vt.assert(ty).map_err(e_map)?;
+                    if let Some(l) = locals.get(idx) {
+                        vt.assert(*l).map_err(e_map)?;
+                    }
+                }
+            }
+            VariableKind::Global(idx, vt) => {
+                if *vt == ValType::Any {
+                    if let Some(g) = globals.get(idx) {
+                        g.assert(ty).map_err(e_map)?;
+                        *vt = *g;
+                    } else {
+                        globals.insert(*idx, ty);
+                        *vt = ty;
+                    }
+                } else {
+                    vt.assert(ty).map_err(e_map)?;
+                    if let Some(g) = globals.get(idx) {
+                        vt.assert(*g).map_err(e_map)?;
+                    }
+                }
+            }
+            VariableKind::GlobalPreDef(pdv) => pdv.val_type().assert(ty).map_err(e_map)?,
+        }
+        Ok(())
     }
 }
 
 impl Narrate for Variable {
     fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
-        let _ = match self {
-            Variable::Local(id, _) => write!(
+        let _ = match &self.kind {
+            VariableKind::Local(id, _) => write!(
                 buf,
                 "{}",
                 symbols
@@ -81,7 +167,7 @@ impl Narrate for Variable {
                     .expect("missing variable in symbol table")
                     .0
             ),
-            Variable::Global(id, _) => write!(
+            VariableKind::Global(id, _) => write!(
                 buf,
                 "@{}",
                 symbols
@@ -89,7 +175,7 @@ impl Narrate for Variable {
                     .expect("missing variable in symbol table")
                     .0
             ),
-            Variable::GlobalPreDef(pdv) => write!(buf, "@{}", pdv.get_str()),
+            VariableKind::GlobalPreDef(pdv) => write!(buf, "@{}", pdv.get_str()),
         };
     }
 }

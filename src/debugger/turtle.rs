@@ -3,8 +3,7 @@ use std::{array, f64::consts::PI, time::Duration};
 use sdl2::{pixels::Color, rect::Point};
 
 use crate::{
-    tokens::{PredefVar, Value, Variable},
-    SymbolTable,
+    pos::FilePos, tokens::{PredefVar, Value, Variable, VariableKind}, SymbolTable
 };
 
 use super::{varlist::VarList, window::Window};
@@ -100,10 +99,10 @@ impl Turtle {
     }
 
     pub fn get_var(&mut self, var: &Variable) -> Value {
-        match var {
-            Variable::Local(id, ty) => self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone(),
-            Variable::Global(id, ty) => self.glob.get_var(*id, *ty).clone(),
-            Variable::GlobalPreDef(pdv) => Value::Number(match pdv {
+        match &var.kind {
+            VariableKind::Local(id, ty) => self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone(),
+            VariableKind::Global(id, ty) => self.glob.get_var(*id, *ty).clone(),
+            VariableKind::GlobalPreDef(pdv) => Value::Number(match pdv {
                 PredefVar::Dir => self.dir,
                 PredefVar::Dist => (self.pos.0 * self.pos.0 + self.pos.1 * self.pos.1).sqrt(),
                 PredefVar::X => self.pos.0,
@@ -121,10 +120,10 @@ impl Turtle {
     }
 
     pub fn set_var(&mut self, var: &Variable, val: Value) {
-        match var {
-            Variable::Local(id, _) => self.stack.last_mut().unwrap().1.set_var(*id, val),
-            Variable::Global(id, _) => self.glob.set_var(*id, val),
-            Variable::GlobalPreDef(pdv) => match pdv {
+        match &var.kind {
+            VariableKind::Local(id, _) => self.stack.last_mut().unwrap().1.set_var(*id, val),
+            VariableKind::Global(id, _) => self.glob.set_var(*id, val),
+            VariableKind::GlobalPreDef(pdv) => match pdv {
                 PredefVar::MaxX => self.max_coord.0 = val.num(),
                 PredefVar::MaxY => self.max_coord.1 = val.num(),
                 PredefVar::Delay => self.delay = val.num(),
@@ -148,7 +147,7 @@ impl Turtle {
     pub fn dump_vars(&mut self, symbols: &SymbolTable) {
         println!("=== variable dump ===");
         for pdv in PredefVar::get_all() {
-            let val = self.get_var(&Variable::GlobalPreDef(pdv));
+            let val = self.get_var(&VariableKind::GlobalPreDef(pdv).at(FilePos::default()));
             println!("@{} = {val}", pdv.get_str());
         }
         println!();

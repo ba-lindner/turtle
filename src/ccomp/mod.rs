@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::tokens::{
-    PredefVar, BiOperator, Expr, PredefFunc, Statement, Block, Variable,
+    BiOperator, Block, Expr, ExprKind, PredefFunc, PredefVar, Statement, Variable, VariableKind
 };
 use crate::{Identified, TProgram};
 
@@ -252,10 +252,10 @@ impl CComp {
     }
 
     fn comp_expr(&self, ctx: &mut Context, expr: &Expr) -> String {
-        match expr {
-            Expr::Const(val) => format!("{val}"),
-            Expr::Variable(var) => self.comp_var(ctx, var, VarAct::Read),
-            Expr::BiOperation(lhs, op, rhs) => {
+        match &expr.kind {
+            ExprKind::Const(val) => format!("{val}"),
+            ExprKind::Variable(var) => self.comp_var(ctx, var, VarAct::Read),
+            ExprKind::BiOperation(lhs, op, rhs) => {
                 if *op == BiOperator::Exp {
                     format!(
                         "pow({}, {})",
@@ -270,11 +270,11 @@ impl CComp {
                     )
                 }
             }
-            Expr::UnOperation(op, sub) => format!("{op}({})", self.comp_expr(ctx, sub)),
-            Expr::Absolute(sub) => format!("abs({})", self.comp_expr(ctx, sub)),
-            Expr::Bracket(sub) => format!("({})", self.comp_expr(ctx, sub)),
-            Expr::Convert(_, _) => todo!(),
-            Expr::FuncCall(fnname, args) => {
+            ExprKind::UnOperation(op, sub) => format!("{op}({})", self.comp_expr(ctx, sub)),
+            ExprKind::Absolute(sub) => format!("abs({})", self.comp_expr(ctx, sub)),
+            ExprKind::Bracket(sub) => format!("({})", self.comp_expr(ctx, sub)),
+            ExprKind::Convert(_, _) => todo!(),
+            ExprKind::FuncCall(fnname, args) => {
                 let args = self.comp_args(args, |e| self.comp_expr(ctx, e));
                 let (transform_angle, c_func) = match fnname {
                     PredefFunc::Sin => (true, "sin"),
@@ -289,7 +289,7 @@ impl CComp {
                     format!("{c_func}({args})")
                 }
             }
-            Expr::CalcCall(id, args) => format!(
+            ExprKind::CalcCall(id, args) => format!(
                 "{}({})",
                 self.get_ident(*id),
                 self.comp_args(args, |e| self.comp_expr(ctx, e))
@@ -298,8 +298,8 @@ impl CComp {
     }
 
     fn comp_var(&self, ctx: &mut Context, var: &Variable, act: VarAct) -> String {
-        match var {
-            Variable::Local(id, _) => {
+        match &var.kind {
+            VariableKind::Local(id, _) => {
                 let mut res = self.get_ident(*id);
                 if !ctx.has_var(*id) {
                     ctx.insert(*id, act == VarAct::Init);
@@ -309,8 +309,8 @@ impl CComp {
                 }
                 res
             }
-            Variable::Global(id, _) => self.get_ident(*id),
-            Variable::GlobalPreDef(pdv) => {
+            VariableKind::Global(id, _) => self.get_ident(*id),
+            VariableKind::GlobalPreDef(pdv) => {
                 if act != VarAct::Read && !pdv.is_writeable() {
                     panic!(
                         "writing to readonly predefined global variable @{}",

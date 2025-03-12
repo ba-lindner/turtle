@@ -10,13 +10,6 @@ pub struct FilePos {
 }
 
 impl FilePos {
-    /// Create a new [`FilePos`] struct.
-    ///
-    /// # Examples
-    /// ```
-    /// # use turtle::FilePos;
-    /// let fp = FilePos::new(10, 20);
-    /// ```
     pub fn new(line: usize, column: usize) -> Self {
         Self { line, column }
     }

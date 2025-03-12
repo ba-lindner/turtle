@@ -2,7 +2,7 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 
 use parking_lot::Mutex;
 
-use crate::{debugger::varlist::VarList, pos::FilePos, tokens::{Block, Expr, Statement, Value}, TProgram};
+use crate::{debugger::varlist::VarList, pos::FilePos, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram};
 
 use super::{turtle::Turtle, DbgAction};
 
@@ -178,23 +178,23 @@ impl<'p> DebugTask<'p> {
 
     async fn dbg_expr(&mut self, expr: &Expr) -> Value {
         let fut = async {
-            match expr {
-                Expr::Const(val) => val.clone(),
-                Expr::Variable(var) => self.turtle.lock().get_var(var),
-                Expr::BiOperation(lhs, op, rhs) => {
+            match &expr.kind {
+                ExprKind::Const(val) => val.clone(),
+                ExprKind::Variable(var) => self.turtle.lock().get_var(var),
+                ExprKind::BiOperation(lhs, op, rhs) => {
                     let lhs = self.dbg_expr(lhs).await;
                     let rhs = self.dbg_expr(rhs).await;
                     op.eval(&lhs, &rhs)
                 }
-                Expr::UnOperation(op, expr) => {
+                ExprKind::UnOperation(op, expr) => {
                     let val = self.dbg_expr(expr).await;
                     op.eval(&val)
                 }
-                Expr::Absolute(expr) => Value::Number(self.dbg_expr(expr).await.num().abs()),
-                Expr::Bracket(expr) => self.dbg_expr(expr).await,
-                Expr::Convert(from, to) => self.dbg_expr(from).await.convert(*to),
-                Expr::FuncCall(pdf, args) => pdf.eval(&self.dbg_args(args).await),
-                Expr::CalcCall(id, args) => {
+                ExprKind::Absolute(expr) => Value::Number(self.dbg_expr(expr).await.num().abs()),
+                ExprKind::Bracket(expr) => self.dbg_expr(expr).await,
+                ExprKind::Convert(from, to) => self.dbg_expr(from).await.convert(*to),
+                ExprKind::FuncCall(pdf, args) => pdf.eval(&self.dbg_args(args).await),
+                ExprKind::CalcCall(id, args) => {
                     let calc = self
                         .prog
                         .get_calc(*id)

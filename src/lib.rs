@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 
 use pos::*;
 use prog::parser::ParseError;
+use tokens::TypeError;
 
 pub use ccomp::CComp;
 pub use debugger::runner::DebugRunner;
@@ -62,4 +63,12 @@ pub enum TurtleError {
     UnidentifiedIdentifier(usize),
     #[error("no function #{0}")]
     MissingDefinition(usize),
+    #[error("type could not be inferred for global variables {}", .0.iter().map(|idx| format!("#{idx}")).collect::<String>())]
+    UndefGlobals(Vec<usize>),
+    #[error("type could not be inferred for some local variables")]
+    UndefLocals,
+    #[error("{0} at {1}")]
+    TypeError(TypeError, FilePos),
+    #[error("{0} at {1} - {2}")]
+    TypeErrorSpan(TypeError, FilePos, FilePos),
 }
