@@ -1,6 +1,12 @@
-use std::{fmt::Display, num::{ParseFloatError, ParseIntError}};
+use std::{
+    fmt::Display,
+    num::{ParseFloatError, ParseIntError},
+};
 
-use crate::{tokens::{PredefVar, Keyword}, FilePos, Identified, Pos};
+use crate::{
+    tokens::{Keyword, PredefVar},
+    FilePos, Identified, Pos,
+};
 use crate::{Positionable, SymbolTable, TurtleError};
 
 pub type LResult = Pos<Result<LexToken, LexError>>;
@@ -81,7 +87,9 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.next_char() {
             if c == '.' && state == NumState::Initial {
                 state = NumState::Fraction;
-            } else if (c == 'e' || c == 'E') && (state == NumState::Fraction || state == NumState::Initial) {
+            } else if (c == 'e' || c == 'E')
+                && (state == NumState::Fraction || state == NumState::Initial)
+            {
                 state = NumState::Exponent;
                 if let Some(next) = self.lookahead() {
                     if next == '+' || next == '-' {

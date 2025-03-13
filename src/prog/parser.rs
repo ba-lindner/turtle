@@ -173,7 +173,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_main(&mut self, begin: FilePos) -> PRes<ParseToken> {
-        Ok(ParseToken::StartBlock(self.parse_statements(begin, Keyword::End)?))
+        Ok(ParseToken::StartBlock(
+            self.parse_statements(begin, Keyword::End)?,
+        ))
     }
 
     fn parse_variable(&mut self) -> PRes<Variable> {
@@ -184,12 +186,21 @@ impl<'a> Parser<'a> {
         match token {
             LexToken::GlobalVar(id) => {
                 self.set_ident_type(id, Identified::GlobalVar)?;
-                Ok(Variable { pos, kind: VariableKind::Global(id, ValType::Any) })
+                Ok(Variable {
+                    pos,
+                    kind: VariableKind::Global(id, ValType::Any),
+                })
             }
-            LexToken::PredefVar(pdv) => Ok(Variable { pos, kind: VariableKind::GlobalPreDef(pdv) }),
+            LexToken::PredefVar(pdv) => Ok(Variable {
+                pos,
+                kind: VariableKind::GlobalPreDef(pdv),
+            }),
             LexToken::Identifier(id) => {
                 self.set_ident_type(id, Identified::LocalVar)?;
-                Ok(Variable { pos, kind: VariableKind::Local(id, ValType::Any) })
+                Ok(Variable {
+                    pos,
+                    kind: VariableKind::Local(id, ValType::Any),
+                })
             }
             t => Err(
                 ParseError::UnexpectedToken(t, TokenExpectation::AnyIdentifier)
@@ -213,10 +224,27 @@ impl<'a> Parser<'a> {
 
         const PRECEDENCE: [(&[BiOperator], Associativity); 7] = [
             (&[BiOperator::Exp], Associativity::RightToLeft),
-            (&[BiOperator::Mul, BiOperator::Div], Associativity::LeftToRight),
-            (&[BiOperator::Add, BiOperator::Sub], Associativity::LeftToRight),
-            (&[BiOperator::Less, BiOperator::LessEqual, BiOperator::Greater, BiOperator::GreaterEqual], Associativity::LeftToRight),
-            (&[BiOperator::Equal, BiOperator::UnEqual], Associativity::LeftToRight),
+            (
+                &[BiOperator::Mul, BiOperator::Div],
+                Associativity::LeftToRight,
+            ),
+            (
+                &[BiOperator::Add, BiOperator::Sub],
+                Associativity::LeftToRight,
+            ),
+            (
+                &[
+                    BiOperator::Less,
+                    BiOperator::LessEqual,
+                    BiOperator::Greater,
+                    BiOperator::GreaterEqual,
+                ],
+                Associativity::LeftToRight,
+            ),
+            (
+                &[BiOperator::Equal, BiOperator::UnEqual],
+                Associativity::LeftToRight,
+            ),
             (&[BiOperator::And], Associativity::LeftToRight),
             (&[BiOperator::Or], Associativity::LeftToRight),
         ];
@@ -237,11 +265,7 @@ impl<'a> Parser<'a> {
                                 nodes[i + 1].1 = Some(Expr {
                                     start: lhs.start,
                                     end: rhs.end,
-                                    kind: ExprKind::BiOperation(
-                                        Box::new(lhs),
-                                        op,
-                                        Box::new(rhs),
-                                    )
+                                    kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
                                 });
                                 nodes[i + 1].0 = nodes[i].0;
                                 nodes[i].0 = NodeKind::Empty;
@@ -258,11 +282,7 @@ impl<'a> Parser<'a> {
                                 nodes[i - 1].1 = Some(Expr {
                                     start: lhs.start,
                                     end: rhs.end,
-                                    kind: ExprKind::BiOperation(
-                                        Box::new(lhs),
-                                        op,
-                                        Box::new(rhs),
-                                    )
+                                    kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
                                 });
                                 nodes[i].0 = NodeKind::Empty;
                             }
@@ -279,56 +299,79 @@ impl<'a> Parser<'a> {
 
     fn parse_operand(&mut self) -> PRes<Expr> {
         let start = self.curr_pos();
-        Ok(match self.next_token().ok_or(ParseError::UnexpectedEnd.attach_pos(start))? {
-            LexToken::Symbol('(') => {
-                let expr = self.parse_expr()?;
-                self.expect_symbol(')')?;
-                ExprKind::Bracket(Box::new(expr)).at(start, self.last_pos())
-            }
-            LexToken::Symbol('|') => {
-                let expr = self.parse_expr()?;
-                self.expect_symbol('|')?;
-                ExprKind::Absolute(Box::new(expr)).at(start, self.last_pos())
-            }
-            LexToken::Symbol('-') => {
-                ExprKind::UnOperation(UnOperator::Negate, Box::new(self.parse_operand()?)).at(start, self.last_pos())
-            }
-            LexToken::Keyword(Keyword::Not) => {
-                ExprKind::UnOperation(UnOperator::Not, Box::new(self.parse_operand()?)).at(start, self.last_pos())
-            }
-            LexToken::IntLiteral(i) => ExprKind::Const(Value::Number(i as f64)).at(start, start),
-            LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)).at(start, start),
-            LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)).at(start, start),
-            LexToken::Keyword(Keyword::True) => ExprKind::Const(Value::Boolean(true)).at(start, start),
-            LexToken::Keyword(Keyword::False) => ExprKind::Const(Value::Boolean(false)).at(start, start),
-            LexToken::GlobalVar(v) => ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start)).at(start, start),
-            LexToken::PredefVar(pdv) => ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start)).at(start, start),
-            LexToken::Keyword(kw) => {
-                if let Some(pdf) = PredefFunc::parse(kw) {
-                    let args = self.parse_args(Some(pdf.args().len()))?;
-                    ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
-                } else if let Some(conv) = ValType::parse(kw) {
-                    self.expect_symbol('(')?;
+        Ok(
+            match self
+                .next_token()
+                .ok_or(ParseError::UnexpectedEnd.attach_pos(start))?
+            {
+                LexToken::Symbol('(') => {
                     let expr = self.parse_expr()?;
                     self.expect_symbol(')')?;
-                    ExprKind::Convert(Box::new(expr), conv).at(start, self.last_pos())
-                } else {
-                    self.pos -= 1;
-                    return Err(self.unexpected_token(TokenExpectation::PredefFunc));
+                    ExprKind::Bracket(Box::new(expr)).at(start, self.last_pos())
                 }
-            }
-            LexToken::Identifier(id) => {
-                if self.lookahead() == Some(LexToken::Symbol('(')) {
-                    let args = self.parse_args(None)?;
-                    self.set_ident_type(id, Identified::Calc(args.len()))?;
-                    ExprKind::CalcCall(id, args).at(start, self.last_pos())
-                } else {
-                    self.set_ident_type(id, Identified::LocalVar)?;
-                    ExprKind::Variable(VariableKind::Local(id, ValType::Any).at(start)).at(start, start)
+                LexToken::Symbol('|') => {
+                    let expr = self.parse_expr()?;
+                    self.expect_symbol('|')?;
+                    ExprKind::Absolute(Box::new(expr)).at(start, self.last_pos())
                 }
-            }
-            t => return Err(ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start)),
-        })
+                LexToken::Symbol('-') => {
+                    ExprKind::UnOperation(UnOperator::Negate, Box::new(self.parse_operand()?))
+                        .at(start, self.last_pos())
+                }
+                LexToken::Keyword(Keyword::Not) => {
+                    ExprKind::UnOperation(UnOperator::Not, Box::new(self.parse_operand()?))
+                        .at(start, self.last_pos())
+                }
+                LexToken::IntLiteral(i) => {
+                    ExprKind::Const(Value::Number(i as f64)).at(start, start)
+                }
+                LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)).at(start, start),
+                LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)).at(start, start),
+                LexToken::Keyword(Keyword::True) => {
+                    ExprKind::Const(Value::Boolean(true)).at(start, start)
+                }
+                LexToken::Keyword(Keyword::False) => {
+                    ExprKind::Const(Value::Boolean(false)).at(start, start)
+                }
+                LexToken::GlobalVar(v) => {
+                    ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start))
+                        .at(start, start)
+                }
+                LexToken::PredefVar(pdv) => {
+                    ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start)).at(start, start)
+                }
+                LexToken::Keyword(kw) => {
+                    if let Some(pdf) = PredefFunc::parse(kw) {
+                        let args = self.parse_args(Some(pdf.args().len()))?;
+                        ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
+                    } else if let Some(conv) = ValType::parse(kw) {
+                        self.expect_symbol('(')?;
+                        let expr = self.parse_expr()?;
+                        self.expect_symbol(')')?;
+                        ExprKind::Convert(Box::new(expr), conv).at(start, self.last_pos())
+                    } else {
+                        self.pos -= 1;
+                        return Err(self.unexpected_token(TokenExpectation::PredefFunc));
+                    }
+                }
+                LexToken::Identifier(id) => {
+                    if self.lookahead() == Some(LexToken::Symbol('(')) {
+                        let args = self.parse_args(None)?;
+                        self.set_ident_type(id, Identified::Calc(args.len()))?;
+                        ExprKind::CalcCall(id, args).at(start, self.last_pos())
+                    } else {
+                        self.set_ident_type(id, Identified::LocalVar)?;
+                        ExprKind::Variable(VariableKind::Local(id, ValType::Any).at(start))
+                            .at(start, start)
+                    }
+                }
+                t => {
+                    return Err(
+                        ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start)
+                    )
+                }
+            },
+        )
     }
 
     fn parse_args(&mut self, count: Option<usize>) -> PRes<Vec<Expr>> {
@@ -344,7 +387,7 @@ impl<'a> Parser<'a> {
         }
         if let Some(c) = count {
             if c != args.len() {
-                return Err(ParseError::ArgCount(args.len(), c).attach_pos(pos))
+                return Err(ParseError::ArgCount(args.len(), c).attach_pos(pos));
             }
         }
         Ok(args)

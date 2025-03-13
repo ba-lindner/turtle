@@ -1,7 +1,7 @@
-use super::{Parser, PRes, TokenExpectation, LexToken, ParseError};
-use crate::{tokens::*, FilePos, Pos, Positionable, Identified};
+use super::{LexToken, PRes, ParseError, Parser, TokenExpectation};
+use crate::{tokens::*, FilePos, Identified, Pos, Positionable};
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     pub(super) fn parse_statements(&mut self, begin: FilePos, end_key: Keyword) -> PRes<Block> {
         let mut statements = Vec::new();
         while !self.match_keyword(end_key) {
@@ -37,7 +37,9 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Statement::Store(expr, var))
             }
-            Keyword::Add | Keyword::Append => self.parse_calc_stm(Keyword::To, BiOperator::Add, false),
+            Keyword::Add | Keyword::Append => {
+                self.parse_calc_stm(Keyword::To, BiOperator::Add, false)
+            }
             Keyword::Sub => self.parse_calc_stm(Keyword::From, BiOperator::Sub, false),
             Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul, true),
             Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div, true),
@@ -110,12 +112,19 @@ impl<'a> Parser<'a> {
         let name = self.match_identifier()?;
         let args = if self.lookahead() == Some(LexToken::Symbol('(')) {
             self.parse_args(None)?
-        } else { Vec::new() };
+        } else {
+            Vec::new()
+        };
         self.set_ident_type(name, Identified::Path(args.len()))?;
         Ok(Statement::PathCall(name, args))
     }
 
-    pub(super) fn parse_calc_stm(&mut self, mid: Keyword, op: BiOperator, var_first: bool) -> PRes<Statement> {
+    pub(super) fn parse_calc_stm(
+        &mut self,
+        mid: Keyword,
+        op: BiOperator,
+        var_first: bool,
+    ) -> PRes<Statement> {
         let (var, val) = if var_first {
             let var = self.parse_variable()?;
             self.expect_keyword(mid)?;

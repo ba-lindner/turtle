@@ -3,7 +3,9 @@ use std::{array, f64::consts::PI, time::Duration};
 use sdl2::{pixels::Color, rect::Point};
 
 use crate::{
-    pos::FilePos, tokens::{PredefVar, Value, Variable, VariableKind}, SymbolTable
+    pos::FilePos,
+    tokens::{PredefVar, Value, Variable, VariableKind},
+    SymbolTable,
 };
 
 use super::{varlist::VarList, window::Window};
@@ -30,9 +32,7 @@ impl Turtle {
             stack: vec![(None, VarList::new())],
             marks: Vec::new(),
             col: (100.0, 100.0, 0.0),
-            prog_args: array::from_fn(|idx| {
-                args.get(idx).cloned().unwrap_or_default()
-            }),
+            prog_args: array::from_fn(|idx| args.get(idx).cloned().unwrap_or_default()),
             max_coord: (20.0, 15.0),
             delay: 1.0,
             window: Window::new(title),
@@ -100,7 +100,9 @@ impl Turtle {
 
     pub fn get_var(&mut self, var: &Variable) -> Value {
         match &var.kind {
-            VariableKind::Local(id, ty) => self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone(),
+            VariableKind::Local(id, ty) => {
+                self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone()
+            }
             VariableKind::Global(id, ty) => self.glob.get_var(*id, *ty).clone(),
             VariableKind::GlobalPreDef(pdv) => Value::Number(match pdv {
                 PredefVar::Dir => self.dir,

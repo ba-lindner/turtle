@@ -10,7 +10,8 @@ use sdl2::keyboard::Keycode;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
-    tokens::StmtKind, TProgram,
+    tokens::StmtKind,
+    TProgram,
 };
 
 use super::{task::DebugTask, turtle::Turtle, DbgAction, TurtleWaker};

@@ -89,17 +89,17 @@ impl PredefVar {
 
     pub fn val_type(&self) -> ValType {
         match self {
-            PredefVar::Dir |
-            PredefVar::Dist |
-            PredefVar::X |
-            PredefVar::Y |
-            PredefVar::Pi |
-            PredefVar::MaxX |
-            PredefVar::MaxY |
-            PredefVar::Delay |
-            PredefVar::Red |
-            PredefVar::Green |
-            PredefVar::Blue => ValType::Number,
+            PredefVar::Dir
+            | PredefVar::Dist
+            | PredefVar::X
+            | PredefVar::Y
+            | PredefVar::Pi
+            | PredefVar::MaxX
+            | PredefVar::MaxY
+            | PredefVar::Delay
+            | PredefVar::Red
+            | PredefVar::Green
+            | PredefVar::Blue => ValType::Number,
             PredefVar::Arg(_) => ValType::String,
         }
     }

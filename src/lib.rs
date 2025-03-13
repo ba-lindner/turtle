@@ -1,10 +1,9 @@
-use std::fmt::Display;
+use std::fmt::{Display, Write as _};
 
 use indexmap::IndexMap;
 
 use pos::*;
-use prog::parser::ParseError;
-use tokens::TypeError;
+use prog::{parser::ParseError, TypeError};
 
 pub use ccomp::CComp;
 pub use debugger::runner::DebugRunner;
@@ -51,7 +50,10 @@ impl Display for Identified {
 pub enum TurtleError {
     #[error("{0}")]
     IOError(#[from] std::io::Error),
-    #[error("{}", .0.iter().map(|e| format!("{} at {}\n", **e, e.get_pos())).collect::<String>())]
+    #[error("{}", .0.iter().fold(String::new(), |mut acc, e| {
+        let _ = writeln!(acc, "{} at {}", **e, e.get_pos());
+        acc
+    }))]
     LexErrors(Vec<Pos<prog::lexer::LexError>>),
     #[error("{} at {}", **.0, .0.get_pos())]
     ParseError(#[from] Pos<ParseError>),
@@ -63,7 +65,10 @@ pub enum TurtleError {
     UnidentifiedIdentifier(usize),
     #[error("no function #{0}")]
     MissingDefinition(usize),
-    #[error("type could not be inferred for global variables {}", .0.iter().map(|idx| format!("#{idx}")).collect::<String>())]
+    #[error("type could not be inferred for global variables {}", .0.iter().fold(String::new(), |mut acc, idx| {
+        let _ = write!(acc, "#{idx}");
+        acc
+    }))]
     UndefGlobals(Vec<usize>),
     #[error("type could not be inferred for some local variables")]
     UndefLocals,

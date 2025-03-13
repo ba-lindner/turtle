@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use super::{Keyword, TypeError};
+use super::Keyword;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ValType {
@@ -25,15 +25,7 @@ impl ValType {
             Keyword::Num => Some(Self::Number),
             Keyword::String => Some(Self::String),
             Keyword::Bool => Some(Self::Boolean),
-            _ => None
-        }
-    }
-
-    pub fn assert(&self, expected: ValType) -> Result<(), TypeError> {
-        if *self == expected {
-            Ok(())
-        } else {
-            Err(TypeError::WrongType(*self, expected))
+            _ => None,
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::tokens::{
-    BiOperator, Block, Expr, ExprKind, PredefFunc, PredefVar, Statement, Variable, VariableKind
+    BiOperator, Block, Expr, ExprKind, PredefFunc, PredefVar, Statement, Variable, VariableKind,
 };
 use crate::{Identified, TProgram};
 

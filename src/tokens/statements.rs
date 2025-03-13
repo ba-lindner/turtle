@@ -1,6 +1,6 @@
 use crate::SymbolTable;
 
-use super::{ArgList, BiOperator, Block, Expr, Variable, Narrate as _};
+use super::{ArgList, BiOperator, Block, Expr, Narrate as _, Variable};
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {

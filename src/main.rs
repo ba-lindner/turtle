@@ -64,12 +64,13 @@ fn main() {
             debug,
             no_cache,
         } => compile(get_prog(&file), &file, no_cache, debug),
-        TCommand::Check { file , print_symbols} => {
-            match std::fs::read_to_string(file) {
-                Ok(code) => TProgram::check_code(code, print_symbols),
-                Err(why) => eprintln!("{why}"),
-            }
-        }
+        TCommand::Check {
+            file,
+            print_symbols,
+        } => match std::fs::read_to_string(file) {
+            Ok(code) => TProgram::check_code(code, print_symbols),
+            Err(why) => eprintln!("{why}"),
+        },
     }
 }
 

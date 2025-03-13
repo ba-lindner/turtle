@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     f64::consts::PI,
     fmt::{Display, Write as _},
 };
@@ -7,10 +6,10 @@ use std::{
 use crate::{
     pos::FilePos,
     prog::{CalcDef, PathDef},
-    Pos, SymbolTable, TurtleError,
+    Pos, SymbolTable,
 };
 
-pub use expr::{BiOperator, Expr, ExprKind, TypeError, UnOperator};
+pub use expr::{BiOperator, Expr, ExprKind, UnOperator};
 pub use keywords::Keyword;
 pub use predef_vars::PredefVar;
 pub use statements::{Statement, StmtKind};
@@ -75,84 +74,6 @@ pub enum VariableKind {
 impl VariableKind {
     pub fn at(self, pos: FilePos) -> Variable {
         Variable { pos, kind: self }
-    }
-}
-
-impl Variable {
-    pub fn val_type(
-        &mut self,
-        locals: &mut HashMap<usize, ValType>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<(ValType, bool, bool), TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
-        match &mut self.kind {
-            VariableKind::Local(idx, vt) => {
-                if let Some(l) = locals.get(idx) {
-                    if *vt == ValType::Any {
-                        *vt = *l;
-                    } else {
-                        vt.assert(*l).map_err(e_map)?;
-                    }
-                }
-                Ok((*vt, *vt != ValType::Any, true))
-            }
-            VariableKind::Global(idx, vt) => {
-                if let Some(g) = globals.get(idx) {
-                    if *vt == ValType::Any {
-                        *vt = *g;
-                    } else {
-                        vt.assert(*g).map_err(e_map)?;
-                    }
-                }
-                Ok((*vt, true, *vt != ValType::Any))
-            }
-            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(), true, true)),
-        }
-    }
-
-    pub fn expect_type(
-        &mut self,
-        ty: ValType,
-        locals: &mut HashMap<usize, ValType>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<(), TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
-        match &mut self.kind {
-            VariableKind::Local(idx, vt) => {
-                if *vt == ValType::Any {
-                    if let Some(l) = locals.get(idx) {
-                        l.assert(ty).map_err(e_map)?;
-                        *vt = *l;
-                    } else {
-                        locals.insert(*idx, ty);
-                        *vt = ty;
-                    }
-                } else {
-                    vt.assert(ty).map_err(e_map)?;
-                    if let Some(l) = locals.get(idx) {
-                        vt.assert(*l).map_err(e_map)?;
-                    }
-                }
-            }
-            VariableKind::Global(idx, vt) => {
-                if *vt == ValType::Any {
-                    if let Some(g) = globals.get(idx) {
-                        g.assert(ty).map_err(e_map)?;
-                        *vt = *g;
-                    } else {
-                        globals.insert(*idx, ty);
-                        *vt = ty;
-                    }
-                } else {
-                    vt.assert(ty).map_err(e_map)?;
-                    if let Some(g) = globals.get(idx) {
-                        vt.assert(*g).map_err(e_map)?;
-                    }
-                }
-            }
-            VariableKind::GlobalPreDef(pdv) => pdv.val_type().assert(ty).map_err(e_map)?,
-        }
-        Ok(())
     }
 }
 

@@ -1,4 +1,10 @@
-use std::{future::Future, pin::pin, rc::Rc, sync::{mpsc, Arc}, task::{Context, Wake, Waker}};
+use std::{
+    future::Future,
+    pin::pin,
+    rc::Rc,
+    sync::{mpsc, Arc},
+    task::{Context, Wake, Waker},
+};
 
 use parking_lot::lock_api::Mutex;
 use sdl2::pixels::Color;
@@ -51,10 +57,10 @@ impl<'p> ItpRunner<'p> {
         let (action, _) = mpsc::channel();
         Self(DebugTask::new(
             prog,
-            Rc::new(Mutex::new( Turtle::new(title, args))),
+            Rc::new(Mutex::new(Turtle::new(title, args))),
             Rc::new(Mutex::new(false)),
             action,
-            false
+            false,
         ))
     }
 

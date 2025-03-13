@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{tokens::{ValType, Value}, SymbolTable};
+use crate::{
+    tokens::{ValType, Value},
+    SymbolTable,
+};
 
 pub struct VarList {
     vars: HashMap<usize, Value>,

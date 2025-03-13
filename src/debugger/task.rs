@@ -2,7 +2,12 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 
 use parking_lot::Mutex;
 
-use crate::{debugger::varlist::VarList, pos::FilePos, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram};
+use crate::{
+    debugger::varlist::VarList,
+    pos::FilePos,
+    tokens::{Block, Expr, ExprKind, Statement, Value},
+    TProgram,
+};
 
 use super::{turtle::Turtle, DbgAction};
 
@@ -11,7 +16,10 @@ struct TurtleFuture(bool);
 impl Future for TurtleFuture {
     type Output = ();
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
         if self.0 {
             Poll::Ready(())
         } else {
@@ -65,7 +73,9 @@ impl<'p> DebugTask<'p> {
                 self.dbg_stmt(stmt).await;
                 // after
                 if self.debug {
-                    let _ = self.action.send((DbgAction::AfterStmt(stmt), stmt.get_pos()));
+                    let _ = self
+                        .action
+                        .send((DbgAction::AfterStmt(stmt), stmt.get_pos()));
                     TurtleFuture(false).await;
                 }
             }
@@ -82,7 +92,8 @@ impl<'p> DebugTask<'p> {
             Statement::MoveHome(draw) => self.turtle.lock().move_home(*draw),
             Statement::Turn { left, by } => {
                 let angle = self.dbg_expr(by).await;
-                let new_dir = self.turtle.lock().dir + if *left { angle.num() } else { -angle.num() };
+                let new_dir =
+                    self.turtle.lock().dir + if *left { angle.num() } else { -angle.num() };
                 self.turtle.lock().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
@@ -121,7 +132,9 @@ impl<'p> DebugTask<'p> {
             }
             Statement::Mark => self.turtle.lock().new_mark(),
             Statement::MoveMark(draw) => self.turtle.lock().move_mark(*draw),
-            Statement::Print(expr) => println!("Turtle says: {}", self.dbg_expr(expr).await.string()),
+            Statement::Print(expr) => {
+                println!("Turtle says: {}", self.dbg_expr(expr).await.string())
+            }
             Statement::IfBranch(cond, stmts) => {
                 if self.dbg_expr(cond).await.bool() {
                     self.dbg_block(stmts).await;
