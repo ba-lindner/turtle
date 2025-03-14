@@ -282,6 +282,8 @@ impl CComp {
                     PredefFunc::Tan => (true, "tan"),
                     PredefFunc::Sqrt => (false, "sqrt"),
                     PredefFunc::Rand => (false, "__ttl_rand"),
+                    PredefFunc::Substr => (false, "__TODO__"),
+                    PredefFunc::Strlen => (false, "strlen"),
                 };
                 if transform_angle {
                     format!("{c_func}(({args}) * M_PI / 180.0)")

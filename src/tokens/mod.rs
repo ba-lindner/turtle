@@ -102,7 +102,7 @@ impl Narrate for Variable {
 }
 
 macro_rules! predef_funcs {
-    ($($func:ident as $str:literal ($($arg:ident : $ty:ty),+) -> $ret:ty = $res:expr,)+) => {
+    ($($func:ident ($($arg:ident : $ty:ty),+) -> $ret:ty = $res:expr,)+) => {
         #[derive(Debug, PartialEq)]
         pub enum PredefFunc {
             $($func,)+
@@ -110,45 +110,33 @@ macro_rules! predef_funcs {
 
         impl PredefFunc {
             pub fn eval(&self, args: &[Value]) -> Value {
-                let mut idx = 0;
+                let mut args = args.iter();
                 match self {
-                    $(
-                        Self::$func => {
-                            $(
-                                let $arg: $ty = (&args[idx]).into();
-                                #[allow(unused_assignments)]
-                                { idx += 1; }
-                            )+
-                            $res.into()
-                        }
-                    )+
+                    $(Self::$func => {
+                        $(let $arg: $ty = args.next().unwrap().into();)+
+                        $res.into()
+                    })+
                 }
             }
 
             pub fn parse(kw: Keyword) -> Option<Self> {
                 match kw {
-                    $(
-                        Keyword::$func => Some(Self::$func),
-                    )+
+                    $(Keyword::$func => Some(Self::$func),)+
                     _ => None,
                 }
             }
 
             pub fn args(&self) -> Vec<ValType> {
                 match self {
-                    $(
-                        Self::$func => vec![
-                            $(<$ty as Default>::default().into(),)+
-                        ],
-                    )+
+                    $(Self::$func => vec![
+                        $(<$ty as Default>::default().into(),)+
+                    ],)+
                 }
             }
 
             pub fn ret_type(&self) -> ValType {
                 match self {
-                    $(
-                        Self::$func => <$ret as Default>::default().into(),
-                    )+
+                    $(Self::$func => <$ret as Default>::default().into(),)+
                 }
             }
         }
@@ -156,9 +144,7 @@ macro_rules! predef_funcs {
         impl Display for PredefFunc {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $(
-                        Self::$func => write!(f, $str),
-                    )+
+                    $(Self::$func => Keyword::$func.fmt(f),)+
                 }
             }
         }
@@ -166,9 +152,11 @@ macro_rules! predef_funcs {
 }
 
 predef_funcs! {
-    Sin as "sin" (a: f64) -> f64 = (a * PI / 180.0).sin(),
-    Cos as "cos" (a: f64) -> f64 = (a * PI / 180.0).cos(),
-    Tan as "tan" (a: f64) -> f64 = (a * PI / 180.0).tan(),
-    Sqrt as "sqrt" (x: f64) -> f64 = x.sqrt(),
-    Rand as "rand" (min: f64, max: f64) -> f64 = min + (max - min) * rand::random::<f64>(),
+    Sin (a: f64) -> f64 = (a * PI / 180.0).sin(),
+    Cos (a: f64) -> f64 = (a * PI / 180.0).cos(),
+    Tan (a: f64) -> f64 = (a * PI / 180.0).tan(),
+    Sqrt (x: f64) -> f64 = x.sqrt(),
+    Rand (min: f64, max: f64) -> f64 = min + (max - min) * rand::random::<f64>(),
+    Substr (s: &str, start: f64, end: f64) -> &str = s[start as usize .. end as usize],
+    Strlen (s: &str) -> f64 = s.len() as f64,
 }

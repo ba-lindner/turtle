@@ -66,7 +66,7 @@ pub enum TurtleError {
     #[error("no function #{0}")]
     MissingDefinition(usize),
     #[error("type could not be inferred for global variables {}", .0.iter().fold(String::new(), |mut acc, idx| {
-        let _ = write!(acc, "#{idx}");
+        let _ = write!(acc, "#{idx}, ");
         acc
     }))]
     UndefGlobals(Vec<usize>),

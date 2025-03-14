@@ -101,4 +101,6 @@ keyword_enum! {
     True,
     False,
     Print,
+    Substr,
+    Strlen,
 }

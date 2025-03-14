@@ -4,51 +4,67 @@ use crate::{pos::Pos, tokens::*, Identified, TurtleError};
 
 use super::{CalcDef, PathDef, TProgram};
 
+struct CheckContext {
+    protos: HashMap<usize, Prototype>,
+    globals: HashMap<usize, ValType>,
+    locals: HashMap<usize, ValType>,
+}
+
+impl CheckContext {
+    fn var_count(&self) -> usize {
+        self.globals
+            .values()
+            .filter(|&&vt| vt != ValType::Any)
+            .count()
+            + self
+                .locals
+                .values()
+                .filter(|&&vt| vt != ValType::Any)
+                .count()
+    }
+}
+
 impl TProgram {
     pub(crate) fn semantic_check(&mut self) -> Result<(), TurtleError> {
         self.check_idents()?;
-        let mut globals = HashMap::new();
-        let protos: HashMap<_, _> = self
-            .calcs
-            .iter()
-            .map(|c| (c.name, c.prototype()))
-            .chain(self.paths.iter().map(|p| (p.name, p.prototype())))
-            .collect();
-        let pref = &protos;
-        type CheckFunc<'p> = dyn Fn(&'_ mut TProgram, &'_ mut HashMap<usize, ValType>) -> Result<bool, TurtleError>
-            + 'p;
-        let mut checks: Vec<Box<CheckFunc<'_>>> = vec![Box::new(|prog: &mut TProgram, glob| {
-            prog.main
-                .semantic_check_loop(pref, glob, &mut HashMap::new())
-        })];
+        let mut ctx = CheckContext {
+            protos: self
+                .calcs
+                .iter()
+                .map(|c| (c.name, c.prototype()))
+                .chain(self.paths.iter().map(|p| (p.name, p.prototype())))
+                .collect(),
+            globals: HashMap::new(),
+            locals: HashMap::new(),
+        };
+        type CheckFunc<'p> =
+            dyn Fn(&'_ mut TProgram, &'_ mut CheckContext) -> Result<bool, TurtleError> + 'p;
+        let mut checks: Vec<Box<CheckFunc<'_>>> =
+            vec![Box::new(|prog, ctx| prog.main.semantic_check_loop(ctx))];
         for i in 0..self.calcs.len() {
-            checks.push(Box::new(move |prog, glob| {
-                prog.calcs[i].semantic_check(pref, glob)
-            }));
+            checks.push(Box::new(move |prog, ctx| prog.calcs[i].semantic_check(ctx)));
         }
         for i in 0..self.paths.len() {
-            checks.push(Box::new(move |prog, glob| {
-                prog.paths[i].semantic_check(pref, glob)
-            }));
+            checks.push(Box::new(move |prog, ctx| prog.paths[i].semantic_check(ctx)));
         }
         while !checks.is_empty() {
-            let undef_global_before = globals.values().filter(|&&vt| vt == ValType::Any).count();
-            let check_count_before = checks.len();
+            let prev_undef = ctx.var_count();
+            let prev_checks = checks.len();
             let mut unfinished = Vec::new();
             for c in checks {
-                if !c(self, &mut globals)? {
+                if !c(self, &mut ctx)? {
                     unfinished.push(c);
                 }
             }
-            let undef_global_after = globals.values().filter(|&&vt| vt == ValType::Any).count();
-            if undef_global_after == undef_global_before && unfinished.len() == check_count_before {
+            if ctx.var_count() == prev_undef && unfinished.len() == prev_checks {
                 return Err(TurtleError::UndefGlobals(
                     self.symbols
                         .iter()
                         .enumerate()
                         .filter_map(|(idx, (_, ty))| {
-                            (*ty == Identified::GlobalVar && globals[&idx] == ValType::Any)
-                                .then_some(idx)
+                            (*ty == Identified::GlobalVar
+                                && ctx.globals.get(&idx).is_none_or(|t| *t == ValType::Any))
+                            .then_some(idx)
                         })
                         .collect(),
                 ));
@@ -59,6 +75,31 @@ impl TProgram {
     }
 }
 
+#[must_use]
+struct Vars(bool, bool);
+
+impl Vars {
+    pub fn new() -> Self {
+        Self(true, true)
+    }
+}
+
+impl std::ops::BitAnd for Vars {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 && rhs.0, self.1 && rhs.1)
+    }
+}
+
+impl std::ops::BitAndAssign for Vars {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
+        self.1 &= rhs.1;
+    }
+}
+
+#[derive(Clone)]
 pub struct Prototype {
     pub args: ArgDefList,
     pub ret: Option<ValType>,
@@ -72,13 +113,11 @@ impl PathDef {
         }
     }
 
-    fn semantic_check(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<bool, TurtleError> {
-        let mut locals = self.args.iter().cloned().collect();
-        self.body.semantic_check_loop(protos, globals, &mut locals)
+    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
+        ctx.locals = self.args.iter().cloned().collect();
+        let res = self.body.semantic_check_loop(ctx);
+        ctx.locals.clear();
+        res
     }
 }
 
@@ -90,114 +129,94 @@ impl CalcDef {
         }
     }
 
-    fn semantic_check(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<bool, TurtleError> {
-        let mut locals: HashMap<_, _> = self.args.iter().cloned().collect();
-        self.body.semantic_check_loop(protos, globals, &mut locals)
+    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
+        ctx.locals = self.args.iter().cloned().collect();
+        let res = self.body.semantic_check_loop(ctx);
+        ctx.locals.clear();
+        res
     }
 }
 
 impl Block {
     /// returns whether all global variables could be identified
-    fn semantic_check_loop(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-        locals: &mut HashMap<usize, ValType>,
-    ) -> Result<bool, TurtleError> {
+    fn semantic_check_loop(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
         loop {
-            let prev = globals.values().filter(|&&t| t != ValType::Any).count()
-                + locals.values().filter(|&&t| t != ValType::Any).count();
-            let res = self.semantic_check(protos, globals, locals)?;
+            let prev = ctx.var_count();
+            let res = self.semantic_check(ctx)?;
             if res.0 {
                 return Ok(res.1);
             }
-            if prev
-                == globals.values().filter(|&&t| t != ValType::Any).count()
-                    + locals.values().filter(|&&t| t != ValType::Any).count()
-            {
+            if prev == ctx.var_count() {
                 return Err(TurtleError::UndefLocals);
             }
         }
     }
 
     /// returns whether all local and/or global variables could be identified
-    fn semantic_check(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-        locals: &mut HashMap<usize, ValType>,
-    ) -> Result<(bool, bool), TurtleError> {
-        let (mut loc, mut glob) = (true, true);
-        for stmt in &mut self.statements {
-            let (l, g) = stmt.semantic_check(protos, globals, locals)?;
-            loc &= l;
-            glob &= g;
-        }
-        Ok((loc, glob))
+    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
+        self.statements
+            .iter_mut()
+            .try_fold(Vars::new(), |v, stmt| Ok(v & stmt.semantic_check(ctx)?))
     }
 }
 
+fn check_args(
+    exprs: &mut [Expr],
+    args: &[(usize, ValType)],
+    e_map: impl Fn(TypeError) -> TurtleError,
+    ctx: &mut CheckContext,
+) -> Result<Vars, TurtleError> {
+    if exprs.len() != args.len() {
+        return Err(e_map(TypeError::ArgsWrongLength(exprs.len(), args.len())));
+    }
+    exprs
+        .iter_mut()
+        .zip(args.iter())
+        .try_fold(
+            Vars::new(),
+            |v, (e, (_, a))| Ok(v & e.expect_type(*a, ctx)?),
+        )
+}
+
 impl Pos<Statement> {
-    fn semantic_check(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-        locals: &mut HashMap<usize, ValType>,
-    ) -> Result<(bool, bool), TurtleError> {
+    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
+        let pos = self.get_pos();
+        let e_map = |e: TypeError| TurtleError::TypeError(e, pos);
         match &mut **self {
             Statement::MoveDist { dist: expr, .. }
             | Statement::Turn { by: expr, .. }
-            | Statement::Direction(expr) => {
-                Ok(expr.expect_type(ValType::Number, protos, globals, locals)?)
-            }
+            | Statement::Direction(expr) => Ok(expr.expect_type(ValType::Number, ctx)?),
             Statement::Color(r, g, b) => {
-                let r = r.expect_type(ValType::Number, protos, globals, locals)?;
-                let g = g.expect_type(ValType::Number, protos, globals, locals)?;
-                let b = b.expect_type(ValType::Number, protos, globals, locals)?;
-                Ok((r.0 && g.0 && b.0, r.1 && g.1 && b.1))
+                let r = r.expect_type(ValType::Number, ctx)?;
+                let g = g.expect_type(ValType::Number, ctx)?;
+                let b = b.expect_type(ValType::Number, ctx)?;
+                Ok(r & g & b)
             }
             Statement::MoveHome(_)
             | Statement::Clear
             | Statement::Stop
             | Statement::Finish
             | Statement::Mark
-            | Statement::MoveMark(_) => Ok((true, true)),
+            | Statement::MoveMark(_) => Ok(Vars::new()),
             Statement::PathCall(id, exprs) => {
-                let proto = &protos[&*id];
-                if proto.args.len() != exprs.len() {
-                    return Err(TurtleError::TypeError(
-                        TypeError::ArgsWrongLength(proto.args.len(), exprs.len()),
-                        self.get_pos(),
-                    ));
-                }
-                let (mut loc, mut glob) = (true, true);
-                for (arg, expr) in proto.args.iter().zip(exprs.iter_mut()) {
-                    let (l, g) = expr.expect_type(arg.1, protos, globals, locals)?;
-                    loc &= l;
-                    glob &= g;
-                }
-                Ok((loc, glob))
+                check_args(exprs, &ctx.protos[&*id].clone().args, e_map, ctx)
             }
             Statement::Store(expr, var) => {
-                let var_ty = var.val_type(locals, globals)?;
+                let var_ty = var.val_type(ctx)?;
                 if var_ty.0 == ValType::Any {
-                    let expr = expr.val_type(protos, globals, locals)?;
+                    let expr = expr.val_type(ctx)?;
                     if expr.0 == ValType::Any {
-                        Ok((var_ty.1 && expr.1, var_ty.2 && expr.2))
+                        Ok(var_ty.1 & expr.1)
                     } else {
-                        var.expect_type(expr.0, locals, globals)?;
-                        Ok((expr.1, expr.2))
+                        var.expect_type(expr.0, ctx)?;
+                        Ok(expr.1)
                     }
                 } else {
-                    Ok(expr.expect_type(var_ty.0, protos, globals, locals)?)
+                    Ok(expr.expect_type(var_ty.0, ctx)?)
                 }
             }
             Statement::Calc { var, val, op } => {
-                let var_ty = var.val_type(locals, globals)?;
+                let var_ty = var.val_type(ctx)?;
                 let types = op.types();
                 if var_ty.0 != ValType::Any {
                     if !types.iter().any(|(_, t)| *t == var_ty.0) {
@@ -206,14 +225,14 @@ impl Pos<Statement> {
                             self.get_pos(),
                         ));
                     }
-                    Ok(val.expect_type(var_ty.0, protos, globals, locals)?)
+                    Ok(val.expect_type(var_ty.0, ctx)?)
                 } else if types.len() == 1 {
-                    var.expect_type(types[0].0, locals, globals)?;
-                    Ok(val.expect_type(types[0].0, protos, globals, locals)?)
+                    var.expect_type(types[0].0, ctx)?;
+                    Ok(val.expect_type(types[0].0, ctx)?)
                 } else {
-                    let expr = val.val_type(protos, globals, locals)?;
+                    let expr = val.val_type(ctx)?;
                     if expr.0 == ValType::Any {
-                        Ok((var_ty.1 && expr.1, var_ty.2 && expr.2))
+                        Ok(var_ty.1 & expr.1)
                     } else {
                         if !types.iter().any(|(_, t)| *t == expr.0) {
                             return Err(TurtleError::TypeError(
@@ -221,31 +240,29 @@ impl Pos<Statement> {
                                 self.get_pos(),
                             ));
                         }
-                        var.expect_type(expr.0, locals, globals)?;
-                        Ok((expr.1, expr.2))
+                        var.expect_type(expr.0, ctx)?;
+                        Ok(expr.1)
                     }
                 }
             }
-            Statement::Print(expr) => {
-                Ok(expr.expect_type(ValType::String, protos, globals, locals)?)
-            }
+            Statement::Print(expr) => Ok(expr.expect_type(ValType::String, ctx)?),
             Statement::IfBranch(expr, block)
             | Statement::WhileLoop(expr, block)
             | Statement::RepeatLoop(expr, block) => {
-                let cond = expr.expect_type(ValType::Boolean, protos, globals, locals)?;
-                let block = block.semantic_check(protos, globals, locals)?;
-                Ok((cond.0 && block.0, cond.1 && block.1))
+                let cond = expr.expect_type(ValType::Boolean, ctx)?;
+                let block = block.semantic_check(ctx)?;
+                Ok(cond & block)
             }
             Statement::DoLoop(expr, block) => {
-                let count = expr.expect_type(ValType::Number, protos, globals, locals)?;
-                let block = block.semantic_check(protos, globals, locals)?;
-                Ok((count.0 && block.0, count.1 && block.1))
+                let count = expr.expect_type(ValType::Number, ctx)?;
+                let block = block.semantic_check(ctx)?;
+                Ok(count & block)
             }
             Statement::IfElseBranch(expr, if_block, else_block) => {
-                let cond = expr.expect_type(ValType::Boolean, protos, globals, locals)?;
-                let ib = if_block.semantic_check(protos, globals, locals)?;
-                let eb = else_block.semantic_check(protos, globals, locals)?;
-                Ok((cond.0 && ib.0 && eb.0, cond.1 && ib.1 && eb.1))
+                let cond = expr.expect_type(ValType::Boolean, ctx)?;
+                let ib = if_block.semantic_check(ctx)?;
+                let eb = else_block.semantic_check(ctx)?;
+                Ok(cond & ib & eb)
             }
             Statement::CounterLoop {
                 counter,
@@ -255,46 +272,36 @@ impl Pos<Statement> {
                 step,
                 body,
             } => {
-                counter.expect_type(ValType::String, locals, globals)?;
-                let f = from.expect_type(ValType::Number, protos, globals, locals)?;
-                let t = to.expect_type(ValType::Number, protos, globals, locals)?;
+                counter.expect_type(ValType::String, ctx)?;
+                let f = from.expect_type(ValType::Number, ctx)?;
+                let t = to.expect_type(ValType::Number, ctx)?;
                 let s = step
                     .as_mut()
-                    .map(|s| s.expect_type(ValType::Number, protos, globals, locals))
-                    .unwrap_or(Ok((true, true)))?;
-                let b = body.semantic_check(protos, globals, locals)?;
-                Ok((f.0 && t.0 && s.0 && b.0, f.1 && t.1 && s.1 && b.1))
+                    .map(|s| s.expect_type(ValType::Number, ctx))
+                    .unwrap_or(Ok(Vars::new()))?;
+                let b = body.semantic_check(ctx)?;
+                Ok(f & t & s & b)
             }
         }
     }
 }
 
 impl Expr {
-    pub fn expect_type(
-        &mut self,
-        ty: ValType,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-        locals: &mut HashMap<usize, ValType>,
-    ) -> Result<(bool, bool), TurtleError> {
+    fn expect_type(&mut self, ty: ValType, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
         match &mut self.kind {
             ExprKind::Const(value) => {
                 value.val_type().assert(ty).map_err(e_map)?;
-                Ok((true, true))
+                Ok(Vars::new())
             }
             ExprKind::Variable(var) => {
-                var.expect_type(ty, locals, globals)?;
-                Ok((true, true))
+                var.expect_type(ty, ctx)?;
+                Ok(Vars::new())
             }
             ExprKind::BiOperation(lhs, op, rhs) => {
                 for (inp, out) in op.types() {
                     if out == ty {
-                        let (lhs_ok, rhs_ok) = (
-                            lhs.expect_type(inp, protos, globals, locals)?,
-                            rhs.expect_type(inp, protos, globals, locals)?,
-                        );
-                        return Ok((lhs_ok.0 && rhs_ok.0, lhs_ok.1 && rhs_ok.1));
+                        return Ok(lhs.expect_type(inp, ctx)? & rhs.expect_type(inp, ctx)?);
                     }
                 }
                 Err(e_map(TypeError::BiOpWrongType(*op, ty)))
@@ -303,19 +310,18 @@ impl Expr {
                 if op.val_type() != ty {
                     return Err(e_map(TypeError::UnOpWrongType(*op, ty)));
                 }
-                expr.expect_type(ty, protos, globals, locals)
+                expr.expect_type(ty, ctx)
             }
             ExprKind::Absolute(expr) => {
                 if ty != ValType::Number {
                     return Err(e_map(TypeError::AbsoluteValue(ty)));
                 }
-                expr.expect_type(ty, protos, globals, locals)
+                expr.expect_type(ty, ctx)
             }
-            ExprKind::Bracket(expr) => expr.expect_type(ty, protos, globals, locals),
+            ExprKind::Bracket(expr) => expr.expect_type(ty, ctx),
             ExprKind::Convert(expr, vt) => {
                 vt.assert(ty).map_err(e_map)?;
-                let (_, l, g) = expr.val_type(protos, globals, locals)?;
-                Ok((l, g))
+                Ok(expr.val_type(ctx)?.1)
             }
             ExprKind::FuncCall(pdf, exprs) => {
                 pdf.ret_type().assert(ty).map_err(e_map)?;
@@ -323,53 +329,31 @@ impl Expr {
                 if fargs.len() != exprs.len() {
                     return Err(e_map(TypeError::ArgsWrongLength(fargs.len(), exprs.len())));
                 }
-                let (mut loc, mut glob) = (true, true);
+                let mut v = Vars::new();
                 for i in 0..fargs.len() {
-                    let (l, g) = exprs[i].expect_type(fargs[i], protos, globals, locals)?;
-                    loc &= l;
-                    glob &= g;
+                    v &= exprs[i].expect_type(fargs[i], ctx)?;
                 }
-                Ok((loc, glob))
+                Ok(v)
             }
             ExprKind::CalcCall(idx, exprs) => {
-                let proto = &protos[&*idx];
+                let proto = ctx.protos[&*idx].clone();
                 proto
                     .ret
                     .expect("calc should have ret type")
                     .assert(ty)
                     .map_err(e_map)?;
-                if proto.args.len() != exprs.len() {
-                    return Err(e_map(TypeError::ArgsWrongLength(
-                        proto.args.len(),
-                        exprs.len(),
-                    )));
-                }
-                let (mut loc, mut glob) = (true, true);
-                for (arg, expr) in proto.args.iter().zip(exprs.iter_mut()) {
-                    let (l, g) = expr.expect_type(arg.1, protos, globals, locals)?;
-                    loc &= l;
-                    glob &= g;
-                }
-                Ok((loc, glob))
+                check_args(exprs, &proto.args, e_map, ctx)
             }
         }
     }
 
-    pub fn val_type(
-        &mut self,
-        protos: &HashMap<usize, Prototype>,
-        globals: &mut HashMap<usize, ValType>,
-        locals: &mut HashMap<usize, ValType>,
-    ) -> Result<(ValType, bool, bool), TurtleError> {
+    fn val_type(&mut self, ctx: &mut CheckContext) -> Result<(ValType, Vars), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
         match &mut self.kind {
-            ExprKind::Const(val) => Ok((val.val_type(), true, true)),
-            ExprKind::Variable(var) => var.val_type(locals, globals),
+            ExprKind::Const(val) => Ok((val.val_type(), Vars::new())),
+            ExprKind::Variable(var) => var.val_type(ctx),
             ExprKind::BiOperation(lhs, op, rhs) => {
-                let (lhs_type, rhs_type) = (
-                    lhs.val_type(protos, globals, locals)?,
-                    rhs.val_type(protos, globals, locals)?,
-                );
+                let (lhs_type, rhs_type) = (lhs.val_type(ctx)?, rhs.val_type(ctx)?);
                 if lhs_type.0 != rhs_type.0 {
                     Err(e_map(TypeError::BiOpDifferentTypes(
                         *op, lhs_type.0, rhs_type.0,
@@ -377,14 +361,14 @@ impl Expr {
                 } else {
                     for (inp, out) in op.types() {
                         if inp == lhs_type.0 {
-                            return Ok((out, lhs_type.1 && rhs_type.1, lhs_type.2 && rhs_type.2));
+                            return Ok((out, lhs_type.1 & rhs_type.1));
                         }
                     }
                     Err(e_map(TypeError::BiOpWrongType(*op, lhs_type.0)))
                 }
             }
             ExprKind::UnOperation(op, expr) => {
-                let ty = expr.val_type(protos, globals, locals)?;
+                let ty = expr.val_type(ctx)?;
                 if ty.0 == op.val_type() {
                     Ok(ty)
                 } else {
@@ -392,129 +376,100 @@ impl Expr {
                 }
             }
             ExprKind::Absolute(expr) => {
-                let ty = expr.val_type(protos, globals, locals)?;
+                let ty = expr.val_type(ctx)?;
                 if ty.0 == ValType::Number {
                     Ok(ty)
                 } else {
                     Err(e_map(TypeError::AbsoluteValue(ty.0)))
                 }
             }
-            ExprKind::Bracket(expr) => expr.val_type(protos, globals, locals),
-            ExprKind::Convert(from, to) => {
-                let (_, loc, glob) = from.val_type(protos, globals, locals)?;
-                Ok((*to, loc, glob))
-            }
+            ExprKind::Bracket(expr) => expr.val_type(ctx),
+            ExprKind::Convert(from, to) => Ok((*to, from.val_type(ctx)?.1)),
             ExprKind::FuncCall(pdf, args) => {
                 let fargs = pdf.args();
                 if fargs.len() != args.len() {
                     return Err(e_map(TypeError::ArgsWrongLength(args.len(), fargs.len())));
                 }
-                let (mut loc, mut glob) = (true, true);
+                let mut v = Vars::new();
                 for (idx, arg) in args.iter_mut().enumerate() {
-                    let arg_ty = arg.val_type(protos, globals, locals)?;
+                    let arg_ty = arg.val_type(ctx)?;
                     if fargs[idx] != arg_ty.0 {
                         return Err(e_map(TypeError::ArgWrongType(idx, arg_ty.0, fargs[idx])));
                     }
-                    loc &= arg_ty.1;
-                    glob &= arg_ty.2;
+                    v &= arg_ty.1;
                 }
-                Ok((pdf.ret_type(), loc, glob))
+                Ok((pdf.ret_type(), v))
             }
             ExprKind::CalcCall(idx, exprs) => {
-                let proto = &protos[&*idx];
-                if proto.args.len() != exprs.len() {
-                    return Err(e_map(TypeError::ArgsWrongLength(
-                        exprs.len(),
-                        proto.args.len(),
-                    )));
-                }
-                let (mut loc, mut glob) = (true, true);
-                for (idx, arg) in exprs.iter_mut().enumerate() {
-                    let arg_ty = arg.val_type(protos, globals, locals)?;
-                    if proto.args[idx].1 != arg_ty.0 {
-                        return Err(e_map(TypeError::ArgWrongType(
-                            idx,
-                            arg_ty.0,
-                            proto.args[idx].1,
-                        )));
-                    }
-                    loc &= arg_ty.1;
-                    glob &= arg_ty.2;
-                }
-                Ok((proto.ret.expect("calc should have return type"), loc, glob))
+                let proto = ctx.protos[&*idx].clone();
+                Ok((
+                    proto.ret.expect("calc should have return type"),
+                    check_args(exprs, &proto.args, e_map, ctx)?,
+                ))
             }
         }
     }
 }
 
 impl Variable {
-    pub fn val_type(
-        &mut self,
-        locals: &mut HashMap<usize, ValType>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<(ValType, bool, bool), TurtleError> {
+    fn val_type(&mut self, ctx: &mut CheckContext) -> Result<(ValType, Vars), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
         match &mut self.kind {
             VariableKind::Local(idx, vt) => {
-                if let Some(l) = locals.get(idx) {
+                if let Some(l) = ctx.locals.get(idx) {
                     if *vt == ValType::Any {
                         *vt = *l;
                     } else {
                         vt.assert(*l).map_err(e_map)?;
                     }
                 }
-                Ok((*vt, *vt != ValType::Any, true))
+                Ok((*vt, Vars(*vt != ValType::Any, true)))
             }
             VariableKind::Global(idx, vt) => {
-                if let Some(g) = globals.get(idx) {
+                if let Some(g) = ctx.globals.get(idx) {
                     if *vt == ValType::Any {
                         *vt = *g;
                     } else {
                         vt.assert(*g).map_err(e_map)?;
                     }
                 }
-                Ok((*vt, true, *vt != ValType::Any))
+                Ok((*vt, Vars(true, *vt != ValType::Any)))
             }
-            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(), true, true)),
+            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(), Vars::new())),
         }
     }
 
-    pub fn expect_type(
-        &mut self,
-        ty: ValType,
-        locals: &mut HashMap<usize, ValType>,
-        globals: &mut HashMap<usize, ValType>,
-    ) -> Result<(), TurtleError> {
+    fn expect_type(&mut self, ty: ValType, ctx: &mut CheckContext) -> Result<(), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
         match &mut self.kind {
             VariableKind::Local(idx, vt) => {
                 if *vt == ValType::Any {
-                    if let Some(l) = locals.get(idx) {
+                    if let Some(l) = ctx.locals.get(idx) {
                         l.assert(ty).map_err(e_map)?;
                         *vt = *l;
                     } else {
-                        locals.insert(*idx, ty);
+                        ctx.locals.insert(*idx, ty);
                         *vt = ty;
                     }
                 } else {
                     vt.assert(ty).map_err(e_map)?;
-                    if let Some(l) = locals.get(idx) {
+                    if let Some(l) = ctx.locals.get(idx) {
                         vt.assert(*l).map_err(e_map)?;
                     }
                 }
             }
             VariableKind::Global(idx, vt) => {
                 if *vt == ValType::Any {
-                    if let Some(g) = globals.get(idx) {
+                    if let Some(g) = ctx.globals.get(idx) {
                         g.assert(ty).map_err(e_map)?;
                         *vt = *g;
                     } else {
-                        globals.insert(*idx, ty);
+                        ctx.globals.insert(*idx, ty);
                         *vt = ty;
                     }
                 } else {
                     vt.assert(ty).map_err(e_map)?;
-                    if let Some(g) = globals.get(idx) {
+                    if let Some(g) = ctx.globals.get(idx) {
                         vt.assert(*g).map_err(e_map)?;
                     }
                 }
@@ -526,7 +481,7 @@ impl Variable {
 }
 
 impl ValType {
-    pub fn assert(&self, expected: ValType) -> Result<(), TypeError> {
+    fn assert(&self, expected: ValType) -> Result<(), TypeError> {
         if *self == expected {
             Ok(())
         } else {

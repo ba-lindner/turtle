@@ -4,7 +4,7 @@ path stuff(a: num, b: bool, c: string)
   else
     walk inaccurate(a)
   endif
-  print c + string(b) + true
+  print c + string(b)
 endpath
 
 calculation inaccurate(x: num): num

@@ -137,6 +137,22 @@ impl From<&Value> for String {
     }
 }
 
+impl<'s> From<&'s Value> for &'s str {
+    fn from(value: &'s Value) -> &'s str {
+        match value {
+            Value::Number(_) => unimplemented!("should actually never be reached"),
+            Value::String(s) => s,
+            Value::Boolean(b) => {
+                if *b {
+                    "true"
+                } else {
+                    "false"
+                }
+            }
+        }
+    }
+}
+
 impl From<&Value> for bool {
     fn from(value: &Value) -> Self {
         value.bool()
@@ -152,6 +168,12 @@ impl From<f64> for Value {
 impl From<String> for Value {
     fn from(value: String) -> Self {
         Self::String(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
     }
 }
 
