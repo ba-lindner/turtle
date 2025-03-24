@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use crate::features::{Feature, FeatureConf, FeatureState};
+
 use super::ValType;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -87,7 +89,10 @@ impl PredefVar {
         }
     }
 
-    pub fn val_type(&self) -> ValType {
+    pub fn val_type(&self, features: &FeatureConf) -> ValType {
+        if features[Feature::Types] == FeatureState::Disabled {
+            return ValType::Number
+        }
         match self {
             PredefVar::Dir
             | PredefVar::Dist

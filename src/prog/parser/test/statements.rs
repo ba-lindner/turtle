@@ -1,7 +1,7 @@
 #[test]
 fn if_branch() {
     parse_this!(
-        parser (LocalVar)
+        parser (LocalVar) =>
         Keyword(If),
         Identifier(0),
         Symbol('<'),
@@ -30,7 +30,7 @@ fn if_branch() {
 #[test]
 fn if_else_branch() {
     parse_this!(
-        parser (LocalVar)
+        parser (LocalVar) =>
         Keyword(If),
         Keyword(Not),
         Symbol('('),

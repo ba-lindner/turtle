@@ -11,6 +11,7 @@ pub use prog::TProgram;
 
 mod ccomp;
 mod debugger;
+pub mod features;
 mod pos;
 mod prog;
 pub mod tokens;

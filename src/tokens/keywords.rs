@@ -1,5 +1,13 @@
+use crate::features::*;
+
+macro_rules! count_tts {
+    () => { 0 };
+    ($odd:tt $($a:tt $b:tt)*) => { (count_tts!($($a)*) << 1) | 1 };
+    ($($a:tt $even:tt)*) => { count_tts!($($a)*) << 1 };
+}
+
 macro_rules! keyword_enum {
-    ($($kw:ident),+ $(,)?) => {
+    ($($kw:ident $(if $($feat:ident)|+)?),+ $(,)?) => {
         #[derive(Debug, PartialEq)]
         #[derive(Clone, Copy)]
         pub enum Keyword {
@@ -7,10 +15,22 @@ macro_rules! keyword_enum {
         }
 
         impl Keyword {
-            pub fn all() -> Vec<Keyword> {
-                vec![
-                    $(Keyword::$kw,)+
-                ]
+            pub fn all(features: &FeatureConf) -> Vec<Keyword> {
+                let mut res = Vec::with_capacity(count_tts!($($kw)+));
+                $(
+                    if true $(&& ( $(features[Feature::$feat] != FeatureState::Disabled)||+ ))? {
+                        res.push(Keyword::$kw);
+                    }
+                )+
+                res
+            }
+
+            pub fn enabled(&self, features: &FeatureConf) -> bool {
+                match self {
+                    $(
+                        Keyword::$kw => true $(&& ( $(features[Feature::$feat] != FeatureState::Disabled)||+ ))?,
+                    )+
+                }
             }
         }
 
@@ -94,13 +114,13 @@ keyword_enum! {
     And,
     Or,
     Not,
-    String,
-    Num,
-    Bool,
-    Append,
-    True,
-    False,
-    Print,
-    Substr,
-    Strlen,
+    String if Types,
+    Num if Types,
+    Bool if Types,
+    Append if Types,
+    True if Types,
+    False if Types,
+    Print if Types,
+    Substr if Types,
+    Strlen if Types,
 }

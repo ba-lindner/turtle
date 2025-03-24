@@ -1,19 +1,21 @@
 macro_rules! parse_this {
     (
         $parser:ident
-        ($($id:expr),* $(,)?)
+        $([$($f_op:tt $feat:ident)+])?
+        $(($($id:expr),+ $(,)?))?
+        =>
         $($lex:expr),+ $(,)?
     ) => {
         let mut ident = crate::SymbolTable::new();
-        #[allow(unused)]
+        $(#[allow(unused)]
         {
             use crate::Identified::*;
             let mut cnt = 0;
             $(
                 cnt += 1;
                 ident.insert(format!("ident_{cnt}"), $id);
-            )*
-        }
+            )+
+        })?
         let mut ltokens = Vec::new();
         #[allow(unused)]
         {
@@ -24,11 +26,18 @@ macro_rules! parse_this {
                 ltokens.push($lex.attach_pos(crate::FilePos::new(cnt, 1)));
             )+
         }
+        let mut feat = crate::features::FeatureConf::default();
+        $($(
+            feat[crate::features::Feature::$feat] = parse_this!(@feature_op $f_op);
+        )+)?
         let mut $parser = crate::prog::Parser::new(
             &mut ident,
-            ltokens
+            ltokens,
+            &mut feat,
         );
     };
+    (@feature_op +) => {crate::features::FeatureState::Enabled};
+    (@feature_op -) => {crate::features::FeatureState::Disabled};
 }
 
 macro_rules! block {

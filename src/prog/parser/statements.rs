@@ -1,7 +1,7 @@
 use super::{LexToken, PRes, ParseError, Parser, TokenExpectation};
-use crate::{tokens::*, FilePos, Identified, Pos, Positionable};
+use crate::{features::Feature, tokens::*, FilePos, Identified, Pos, Positionable};
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     pub(super) fn parse_statements(&mut self, begin: FilePos, end_key: Keyword) -> PRes<Block> {
         let mut statements = Vec::new();
         while !self.match_keyword(end_key) {
@@ -37,14 +37,19 @@ impl Parser<'_> {
                 }
                 Ok(Statement::Store(expr, var))
             }
-            Keyword::Add | Keyword::Append => {
-                self.parse_calc_stm(Keyword::To, BiOperator::Add, false)
-            }
+            Keyword::Add => self.parse_calc_stm(Keyword::To, BiOperator::Add, false),
             Keyword::Sub => self.parse_calc_stm(Keyword::From, BiOperator::Sub, false),
             Keyword::Mul => self.parse_calc_stm(Keyword::By, BiOperator::Mul, true),
             Keyword::Div => self.parse_calc_stm(Keyword::By, BiOperator::Div, true),
+            Keyword::Append => {
+                self.expect_feature(Feature::Types)?;
+                self.parse_calc_stm(Keyword::To, BiOperator::Add, false)
+            }
             Keyword::Mark => Ok(Statement::Mark),
-            Keyword::Print => Ok(Statement::Print(self.parse_expr()?)),
+            Keyword::Print => {
+                self.expect_feature(Feature::Types)?;
+                Ok(Statement::Print(self.parse_expr()?))
+            }
             Keyword::If => self.parse_if(fp),
             Keyword::Do => {
                 let expr = self.parse_expr()?;

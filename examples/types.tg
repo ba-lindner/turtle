@@ -1,3 +1,5 @@
+" +feature types
+
 path stuff(a: num, b: bool, c: string)
   if b then
     append string(a) to c

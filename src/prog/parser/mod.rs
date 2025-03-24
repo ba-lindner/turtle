@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
+    features::{Feature, FeatureConf, FeatureState},
     prog::{lexer::LexToken, CalcDef, PathDef},
     tokens::*,
     FilePos, Identified, Pos, Positionable, SymbolTable,
@@ -14,18 +15,24 @@ mod test;
 type PRes<T> = Result<T, Pos<ParseError>>;
 
 /// Turtle Parser
-pub struct Parser<'a> {
+pub struct Parser<'s, 'f> {
     ltokens: Vec<Pos<LexToken>>,
     pos: usize,
-    symbols: &'a mut SymbolTable,
+    symbols: &'s mut SymbolTable,
+    features: &'f mut FeatureConf,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(symbols: &'a mut SymbolTable, ltokens: Vec<Pos<LexToken>>) -> Self {
+impl<'s, 'f> Parser<'s, 'f> {
+    pub fn new(
+        symbols: &'s mut SymbolTable,
+        ltokens: Vec<Pos<LexToken>>,
+        features: &'f mut FeatureConf,
+    ) -> Self {
         Self {
             ltokens,
             pos: 0,
             symbols,
+            features,
         }
     }
 
@@ -113,7 +120,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn expect_feature(&mut self, feature: Feature) -> PRes<()> {
+        self.features
+            .expect(feature)
+            .map_err(|f| ParseError::MissingFeature(f).attach_pos(self.curr_pos()))
+    }
+
     fn parse_type(&mut self) -> PRes<ValType> {
+        self.expect_feature(Feature::Types)?;
         Ok(match self.next_token() {
             Some(LexToken::Keyword(Keyword::Num)) => ValType::Number,
             Some(LexToken::Keyword(Keyword::String)) => ValType::String,
@@ -124,18 +138,7 @@ impl<'a> Parser<'a> {
 
     fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
-        let mut args = Vec::new();
-        if self.match_symbol('(') {
-            while !self.match_symbol(')') {
-                if !args.is_empty() {
-                    self.expect_symbol(',')?;
-                }
-                let arg = self.match_identifier()?;
-                self.expect_symbol(':')?;
-                let ty = self.parse_type()?;
-                args.push((arg, ty));
-            }
-        }
+        let args = self.parse_proto_args(true)?;
         self.set_ident_type(name, Identified::Path(args.len()))?;
         Ok(ParseToken::PathDef(PathDef {
             name,
@@ -146,19 +149,8 @@ impl<'a> Parser<'a> {
 
     fn parse_calc(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
-        let mut args = Vec::new();
-        self.expect_symbol('(')?;
-        while !self.match_symbol(')') {
-            if !args.is_empty() {
-                self.expect_symbol(',')?;
-            }
-            let arg = self.match_identifier()?;
-            self.expect_symbol(':')?;
-            let ty = self.parse_type()?;
-            args.push((arg, ty));
-        }
-        self.expect_symbol(':')?;
-        let ret_ty = self.parse_type()?;
+        let args = self.parse_proto_args(false)?;
+        let ret_ty = self.parse_type_hint()?;
         self.set_ident_type(name, Identified::Calc(args.len()))?;
         let stmts = self.parse_statements(begin, Keyword::Returns)?;
         let ret = self.parse_expr()?;
@@ -170,6 +162,43 @@ impl<'a> Parser<'a> {
             body: stmts,
             ret,
         }))
+    }
+
+    fn parse_proto_args(&mut self, optional: bool) -> PRes<Vec<(usize, ValType)>> {
+        if optional && !self.match_symbol('(') {
+            return Ok(Vec::new());
+        } else if !optional {
+            self.expect_symbol('(')?;
+        }
+        let mut res = Vec::new();
+        while !self.match_symbol(')') {
+            if !res.is_empty() {
+                self.expect_symbol(',')?;
+            }
+            let arg = self.match_identifier()?;
+            let ty = self.parse_type_hint()?;
+            res.push((arg, ty));
+        }
+        Ok(res)
+    }
+
+    fn parse_type_hint(&mut self) -> PRes<ValType> {
+        Ok(match self.features[Feature::Types] {
+            FeatureState::Enabled => {
+                self.expect_symbol(':')?;
+                self.parse_type()?
+            }
+            FeatureState::Auto => {
+                if self.match_symbol(':') {
+                    self.features[Feature::Types] = FeatureState::Enabled;
+                    self.parse_type()?
+                } else {
+                    self.features[Feature::Types] = FeatureState::Disabled;
+                    ValType::Number
+                }
+            }
+            FeatureState::Disabled => ValType::Number,
+        })
     }
 
     fn parse_main(&mut self, begin: FilePos) -> PRes<ParseToken> {
@@ -345,6 +374,7 @@ impl<'a> Parser<'a> {
                         let args = self.parse_args(Some(pdf.args().len()))?;
                         ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
                     } else if let Some(conv) = ValType::parse(kw) {
+                        self.expect_feature(Feature::Types)?;
                         self.expect_symbol('(')?;
                         let expr = self.parse_expr()?;
                         self.expect_symbol(')')?;
@@ -447,7 +477,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-impl Iterator for Parser<'_> {
+impl Iterator for Parser<'_, '_> {
     type Item = PRes<ParseToken>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -469,6 +499,8 @@ pub enum ParseError {
     WriteToReadOnly(PredefVar),
     #[error("wrong number of arguments: got {0}, expected {1}")]
     ArgCount(usize, usize),
+    #[error("missing feature {0}")]
+    MissingFeature(Feature),
 }
 
 #[derive(Debug, PartialEq)]

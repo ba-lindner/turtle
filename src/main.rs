@@ -1,6 +1,6 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::process::Command;
-use turtle::TProgram;
+use turtle::{features::{Feature, FeatureConf, FeatureState}, TProgram};
 
 #[derive(Parser)]
 #[command(version)]
@@ -13,16 +13,19 @@ struct Cli {
 enum TCommand {
     /// Start interpreter
     Run {
-        /// the turtle source file to run
-        file: String,
+        #[command(flatten)]
+        source: Source,
+        /// const-fold before execution
+        #[arg(short, long)]
+        optimized: bool,
         /// args passed to turtle
         #[arg(last = true)]
         args: Vec<String>,
     },
     /// Start debugger
     Debug {
-        /// the turtle source file to debug
-        file: String,
+        #[command(flatten)]
+        source: Source,
         /// set breakpoints in format line,column
         #[arg(short, long)]
         breakpoint: Vec<String>,
@@ -32,8 +35,8 @@ enum TCommand {
     },
     /// Compile to C
     Compile {
-        /// the turtle source file to compile
-        file: String,
+        #[command(flatten)]
+        source: Source,
         /// enable debug builds
         #[arg(short, long)]
         debug: bool,
@@ -43,44 +46,81 @@ enum TCommand {
     },
     /// Check syntax
     Check {
-        /// the turtle source file to check
-        file: String,
+        #[command(flatten)]
+        source: Source,
+        /// print symbols on error
         #[arg(short = 's', long)]
         print_symbols: bool,
     },
 }
 
-fn main() {
-    let cli = Cli::parse();
-    match cli.command {
-        TCommand::Run { file, args } => get_prog(&file).interpret(&args),
-        TCommand::Debug {
-            file,
-            breakpoint: bp,
-            args,
-        } => get_prog(&file).debug(&args, &bp),
-        TCommand::Compile {
-            file,
-            debug,
-            no_cache,
-        } => compile(get_prog(&file), &file, no_cache, debug),
-        TCommand::Check {
-            file,
-            print_symbols,
-        } => match std::fs::read_to_string(file) {
-            Ok(code) => TProgram::check_code(code, print_symbols),
-            Err(why) => eprintln!("{why}"),
-        },
-    }
+#[derive(Args)]
+#[group()]
+struct Source {
+    /// turtle source file
+    file: String,
+    /// enabled features
+    #[arg(short = 'f', long = "feature")]
+    features: Vec<Feature>,
+    /// disabled features
+    #[arg(short = 'F', long = "disabled")]
+    disabled_features: Vec<Feature>,
 }
 
-fn get_prog(file: &str) -> TProgram {
-    match TProgram::from_file(file) {
-        Ok(prog) => prog,
-        Err(why) => {
+impl Source {
+    fn feature_conf(&self) -> FeatureConf {
+        let mut res = FeatureConf::default();
+        for f in &self.features {
+            res[*f] = FeatureState::Enabled;
+        }
+        for f in &self.disabled_features {
+            res[*f] = FeatureState::Disabled;
+        }
+        res
+    }
+
+    fn get_prog(&self) -> TProgram {
+        match TProgram::from_file(&self.file, false, self.feature_conf()) {
+            Ok(prog) => prog,
+            Err(why) => {
+                eprintln!("invalid turtle program: {why}");
+                std::process::exit(1)
+            }
+        }
+    }
+
+    fn check(&self, print_symbols: bool) {
+        if let Err(why) = TProgram::from_file(&self.file, print_symbols, self.feature_conf()) {
             eprintln!("invalid turtle program: {why}");
             std::process::exit(1)
         }
+    }
+}
+
+fn main() {
+    let cli = Cli::parse();
+    match cli.command {
+        TCommand::Run { source, optimized, args } => {
+            let mut prog = source.get_prog();
+            if optimized {
+                prog.optimize();
+            }
+            prog.interpret(&args);
+        }
+        TCommand::Debug {
+            source,
+            breakpoint: bp,
+            args,
+        } => source.get_prog().debug(&args, &bp),
+        TCommand::Compile {
+            source,
+            debug,
+            no_cache,
+        } => compile(source.get_prog(), &source.file, no_cache, debug),
+        TCommand::Check {
+            source,
+            print_symbols,
+        } => source.check(print_symbols),
     }
 }
 

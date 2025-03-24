@@ -1,7 +1,5 @@
 use crate::{
-    debugger::ItpRunner,
-    tokens::{ArgDefList, Block, Expr, ParseToken, ValType},
-    DebugRunner, Identified, SymbolTable, TurtleError,
+    debugger::ItpRunner, features::FeatureConf, tokens::{ArgDefList, Block, Expr, ParseToken, ValType}, DebugRunner, Identified, SymbolTable, TurtleError
 };
 
 use lexer::Lexer;
@@ -11,6 +9,7 @@ pub use semcheck::TypeError;
 pub mod lexer;
 pub mod parser;
 mod semcheck;
+mod optimization;
 
 #[derive(Default)]
 struct RawProg {
@@ -34,12 +33,13 @@ impl RawProg {
         Ok(())
     }
 
-    fn finish(self, symbols: SymbolTable) -> Result<TProgram, TurtleError> {
+    fn finish(self, symbols: SymbolTable, features: FeatureConf) -> Result<TProgram, TurtleError> {
         let Some(main) = self.main else {
             return Err(TurtleError::MissingMain);
         };
         Ok(TProgram {
             name: None,
+            features,
             paths: self.paths,
             calcs: self.calcs,
             main,
@@ -52,6 +52,7 @@ impl RawProg {
 #[derive(Debug)]
 pub struct TProgram {
     pub name: Option<String>,
+    pub features: FeatureConf,
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
     pub main: Block,
@@ -59,73 +60,30 @@ pub struct TProgram {
 }
 
 impl TProgram {
-    pub fn parse(code: String) -> Result<Self, TurtleError> {
+    pub fn parse(code: String, print_symbols: bool, mut features: FeatureConf) -> Result<Self, TurtleError> {
         let mut symbols = SymbolTable::new();
-        let ltokens = Lexer::new(&mut symbols, code.chars()).collect_tokens()?;
-        let parser = Parser::new(&mut symbols, ltokens);
+        let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
+        if print_symbols {
+            for (idx, (name, kind)) in symbols.iter().enumerate() {
+                println!("#{idx:<3} {name:<20} {kind}")
+            }
+        }
+        let parser = Parser::new(&mut symbols, ltokens, &mut features);
         let mut raw = RawProg::default();
         for item in parser {
             raw.insert_item(item?)?;
         }
-        let mut this = raw.finish(symbols)?;
+        features.finalize();
+        let mut this = raw.finish(symbols, features)?;
         this.semantic_check()?;
         Ok(this)
     }
 
-    pub fn from_file(file: &str) -> Result<Self, TurtleError> {
+    pub fn from_file(file: &str, print_symbols: bool, features: FeatureConf) -> Result<Self, TurtleError> {
         let code = std::fs::read_to_string(file)?;
-        let mut this = Self::parse(code)?;
+        let mut this = Self::parse(code, print_symbols, features)?;
         this.name = Some(file.to_string());
         Ok(this)
-    }
-
-    pub fn check_code(code: String, print_symbols: bool) {
-        let mut symbols = SymbolTable::new();
-        let pr_sym = |symbols: &SymbolTable| {
-            if print_symbols {
-                for (idx, (name, kind)) in symbols.iter().enumerate() {
-                    println!("#{idx:<3} {name:<20} {kind}")
-                }
-            }
-        };
-
-        let ltokens = match Lexer::new(&mut symbols, code.chars()).collect_tokens() {
-            Ok(tokens) => tokens,
-            Err(why) => {
-                eprintln!("{why}");
-                pr_sym(&symbols);
-                return;
-            }
-        };
-        let parser = Parser::new(&mut symbols, ltokens);
-        let mut raw = RawProg::default();
-        for item in parser {
-            match item {
-                Ok(item) => {
-                    if let Err(why) = raw.insert_item(item) {
-                        eprintln!("{why}");
-                        pr_sym(&symbols);
-                        return;
-                    }
-                }
-                Err(why) => {
-                    eprintln!("{} at {}", *why, why.get_pos());
-                    pr_sym(&symbols);
-                    return;
-                }
-            }
-        }
-        let mut prog = match raw.finish(symbols) {
-            Ok(prog) => prog,
-            Err(why) => {
-                eprintln!("{why}");
-                return;
-            }
-        };
-        if let Err(why) = prog.semantic_check() {
-            eprintln!("{why}");
-            pr_sym(&prog.symbols);
-        }
     }
 
     fn check_idents(&self) -> Result<(), TurtleError> {
@@ -167,6 +125,16 @@ impl TProgram {
             format!("Turtle {kind} - {name}")
         } else {
             format!("Turtle {kind}")
+        }
+    }
+
+    pub fn optimize(&mut self) {
+        self.main.const_fold();
+        for calc in &mut self.calcs {
+            calc.body.const_fold();
+        }
+        for path in &mut self.paths {
+            path.body.const_fold();
         }
     }
 

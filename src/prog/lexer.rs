@@ -3,7 +3,10 @@ use std::{
     num::{ParseFloatError, ParseIntError},
 };
 
+use clap::ValueEnum;
+
 use crate::{
+    features::{Feature, FeatureConf},
     tokens::{Keyword, PredefVar},
     FilePos, Identified, Pos,
 };
@@ -14,24 +17,32 @@ pub type LResult = Pos<Result<LexToken, LexError>>;
 // Aufwand: bisher ~8h
 
 #[derive(PartialEq, Debug)]
-pub struct Lexer<'a> {
+pub struct Lexer<'s, 'f> {
     chars: Vec<char>,
     offset: usize,
     line: usize,
     column: usize,
     last_col: usize,
-    symbols: &'a mut SymbolTable,
+    start: bool,
+    symbols: &'s mut SymbolTable,
+    features: &'f mut FeatureConf,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(symbols: &'a mut SymbolTable, iter: impl Iterator<Item = char>) -> Self {
+impl<'s, 'f> Lexer<'s, 'f> {
+    pub fn new(
+        symbols: &'s mut SymbolTable,
+        features: &'f mut FeatureConf,
+        iter: impl Iterator<Item = char>,
+    ) -> Self {
         Self {
             chars: iter.collect(),
             offset: 0,
             line: 1,
             column: 1,
             last_col: 1,
+            start: true,
             symbols,
+            features,
         }
     }
 
@@ -54,6 +65,7 @@ impl<'a> Lexer<'a> {
 
     pub fn next_token(&mut self) -> Option<LResult> {
         self.skip_comment();
+        self.start = false;
         let (line, column) = (self.line, self.column);
         let r = match self.next_char()? {
             '@' => self.match_glob_var(),
@@ -145,6 +157,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn match_string_literal(&mut self) -> Result<LexToken, LexError> {
+        self.features
+            .expect(Feature::Types)
+            .map_err(LexError::MissingFeature)?;
         let mut acc = String::new();
         loop {
             match self.next_char().ok_or(LexError::UnclosedString)? {
@@ -165,8 +180,11 @@ impl<'a> Lexer<'a> {
         self.put_back();
         let str = self.get_identifier();
         if let Ok(kw) = str.parse::<Keyword>() {
-            Ok(LexToken::Keyword(kw))
-        } else if let Some(idx) = self.symbols.get_index_of(&str) {
+            if kw.enabled(self.features) {
+                return Ok(LexToken::Keyword(kw));
+            }
+        }
+        if let Some(idx) = self.symbols.get_index_of(&str) {
             Ok(LexToken::Identifier(idx))
         } else {
             let idx = self.symbols.len();
@@ -217,6 +235,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_comment(&mut self) {
         let mut comm = false;
+        let mut line = String::new();
         while let Some(c) = self.next_char() {
             if !comm {
                 if c == '"' {
@@ -227,12 +246,27 @@ impl<'a> Lexer<'a> {
                 }
             } else if c == '\n' {
                 comm = false;
+                let mut check_line = |prefix: &str, enabled| {
+                    if let Some(feature) = line
+                        .trim()
+                        .strip_prefix(prefix)
+                        .and_then(|f| f.split_whitespace().next())
+                        .and_then(|f| Feature::from_str(f, true).ok())
+                    {
+                        self.features.set_auto(feature, enabled);
+                    }
+                };
+                check_line("+feature ", true);
+                check_line("-feature ", false);
+                line.clear();
+            } else if self.start {
+                line.push(c);
             }
         }
     }
 }
 
-impl Iterator for Lexer<'_> {
+impl Iterator for Lexer<'_, '_> {
     type Item = LResult;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -277,6 +311,8 @@ pub enum LexError {
     UnknownEscapeChar(char),
     #[error("string literal not closed")]
     UnclosedString,
+    #[error("missing feature {0}")]
+    MissingFeature(Feature),
 }
 
 #[cfg(test)]
@@ -286,8 +322,9 @@ mod test {
     macro_rules! lex_this {
         ($lex:ident, $code:expr) => {
             let mut ident = SymbolTable::new();
+            let mut feat = FeatureConf::default();
             #[allow(unused_mut)]
-            let mut $lex = Lexer::new(&mut ident, $code.chars());
+            let mut $lex = Lexer::new(&mut ident, &mut feat, $code.chars());
         };
     }
 

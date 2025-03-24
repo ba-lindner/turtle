@@ -6,7 +6,7 @@ use crate::{
 #[test]
 fn unfinished_expression() {
     parse_this!(
-        parser ()
+        parser =>
         IntLiteral(3),
         Symbol('+'),
     );
@@ -21,7 +21,7 @@ fn unfinished_expression() {
 fn nested_expr() {
     //3+|2-(5*4)|^(1+2*3)
     parse_this!(
-        parser ()
+        parser =>
         IntLiteral(3),
         Symbol('+'),
         Symbol('|'),
@@ -84,7 +84,7 @@ fn nested_expr() {
 fn conversions() {
     // num(string(true) + 'a' <> 'b') > 1 = bool(2)
     parse_this!(
-        parser ()
+        parser =>
         Keyword(Num),
         Symbol('('),
         Keyword(String),
@@ -142,7 +142,7 @@ fn conversions() {
 fn functions() {
     // calc(sin(1), cos(tan(2))) + sqrt(rand(0, 10))
     parse_this!(
-        parser (Calc(2))
+        parser (Calc(2)) =>
         Identifier(0),
         Symbol('('),
         Keyword(Sin),

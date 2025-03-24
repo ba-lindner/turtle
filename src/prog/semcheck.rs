@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{pos::Pos, tokens::*, Identified, TurtleError};
+use crate::{features::FeatureConf, pos::Pos, tokens::*, Identified, TurtleError};
 
 use super::{CalcDef, PathDef, TProgram};
 
 struct CheckContext {
+    features: FeatureConf,
     protos: HashMap<usize, Prototype>,
     globals: HashMap<usize, ValType>,
     locals: HashMap<usize, ValType>,
@@ -28,6 +29,7 @@ impl TProgram {
     pub(crate) fn semantic_check(&mut self) -> Result<(), TurtleError> {
         self.check_idents()?;
         let mut ctx = CheckContext {
+            features: self.features,
             protos: self
                 .calcs
                 .iter()
@@ -435,7 +437,7 @@ impl Variable {
                 }
                 Ok((*vt, Vars(true, *vt != ValType::Any)))
             }
-            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(), Vars::new())),
+            VariableKind::GlobalPreDef(pdv) => Ok((pdv.val_type(&ctx.features), Vars::new())),
         }
     }
 
@@ -474,7 +476,7 @@ impl Variable {
                     }
                 }
             }
-            VariableKind::GlobalPreDef(pdv) => pdv.val_type().assert(ty).map_err(e_map)?,
+            VariableKind::GlobalPreDef(pdv) => pdv.val_type(&ctx.features).assert(ty).map_err(e_map)?,
         }
         Ok(())
     }
