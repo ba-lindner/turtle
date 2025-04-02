@@ -3,13 +3,10 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 use parking_lot::Mutex;
 
 use crate::{
-    debugger::varlist::VarList,
-    pos::FilePos,
-    tokens::{Block, Expr, ExprKind, Statement, Value},
-    TProgram,
+    debugger::varlist::VarList, pos::FilePos, prog::PathDef, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram
 };
 
-use super::{turtle::Turtle, DbgAction};
+use super::{turtle::Turtle, window::Window, DbgAction, EventKind, GlobalCtx};
 
 struct TurtleFuture(bool);
 
@@ -29,33 +26,62 @@ impl Future for TurtleFuture {
     }
 }
 
-pub struct DebugTask<'p> {
+pub struct DebugTask<'p, W: Window> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
-    finished: Rc<Mutex<bool>>,
+    ctx: Rc<GlobalCtx<W>>,
     action: Sender<(DbgAction<'p>, FilePos)>,
     debug: bool,
+    curr_pos: FilePos,
 }
 
-impl<'p> DebugTask<'p> {
+impl<'p, W: Window> DebugTask<'p, W> {
     pub fn new(
         prog: &'p TProgram,
         turtle: Rc<Mutex<Turtle>>,
-        finished: Rc<Mutex<bool>>,
+        ctx: Rc<GlobalCtx<W>>,
         action: Sender<(DbgAction<'p>, FilePos)>,
         debug: bool,
     ) -> Self {
         Self {
             prog,
             turtle,
-            finished,
+            ctx,
             action,
             debug,
+            curr_pos: FilePos::default(),
         }
     }
 
     pub async fn execute(mut self) {
         self.dbg_block(&self.prog.main).await
+    }
+
+    pub async fn execute_path(mut self, name: usize, args: Vec<Value>) {
+        let path = self.prog.get_path(name).expect("path should exist");
+        self.exec_path_def(path, args).await;
+    }
+
+    pub async fn execute_event(mut self, kind: EventKind, args: Vec<Value>) {
+        let evt = match kind {
+            EventKind::Mouse => &self.prog.mouse_event,
+            EventKind::Key => &self.prog.key_event,
+        };
+        if let Some(evt) = evt {
+            self.exec_path_def(evt, args).await;
+        }
+    }
+
+    async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>) {
+        assert_eq!(path.args.len(), args.len());
+        let mut ttl = self.turtle.lock();
+        let (func, vars) = ttl.stack.last_mut().unwrap();
+        for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
+            vars.set_var(arg, val);
+        }
+        *func = Some(path.name);
+        drop(ttl);
+        self.dbg_block(&path.body).await;
     }
 
     async fn dbg_block(&mut self, block: &'p Block) {
@@ -64,20 +90,13 @@ impl<'p> DebugTask<'p> {
                 let _ = self.action.send((DbgAction::BlockEntered, block.begin));
             }
             for stmt in &block.statements {
+                self.curr_pos = stmt.get_pos();
                 // before
-                if self.debug {
-                    let _ = self.action.send((DbgAction::BeforeStmt, stmt.get_pos()));
-                    TurtleFuture(false).await;
-                }
+                self.ret(DbgAction::BeforeStmt, self.debug).await;
                 // execute
                 self.dbg_stmt(stmt).await;
                 // after
-                if self.debug {
-                    let _ = self
-                        .action
-                        .send((DbgAction::AfterStmt(stmt), stmt.get_pos()));
-                    TurtleFuture(false).await;
-                }
+                self.ret(DbgAction::AfterStmt(stmt), self.debug).await;
             }
         };
         Box::pin(fut).await
@@ -87,13 +106,17 @@ impl<'p> DebugTask<'p> {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
-                self.turtle.lock().move_dist(dist.num(), *back, *draw);
+                self.turtle.lock().move_dist(&self.ctx, dist.num(), *back, *draw);
+                self.ret(DbgAction::Sleep, *draw).await;
             }
-            Statement::MoveHome(draw) => self.turtle.lock().move_home(*draw),
+            Statement::MoveHome(draw) => {
+                self.turtle.lock().move_home(&self.ctx, *draw);
+                self.ret(DbgAction::Sleep, *draw).await;
+            }
             Statement::Turn { left, by } => {
-                let angle = self.dbg_expr(by).await;
+                let angle = self.dbg_expr(by).await.num();
                 let new_dir =
-                    self.turtle.lock().dir + if *left { angle.num() } else { -angle.num() };
+                    self.turtle.lock().dir + if *left { angle } else { -angle };
                 self.turtle.lock().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
@@ -106,9 +129,12 @@ impl<'p> DebugTask<'p> {
                 let b = self.dbg_expr(ex3).await.num();
                 self.turtle.lock().set_col(r, g, b);
             }
-            Statement::Clear => self.turtle.lock().window.clear(),
-            Statement::Stop => self.stop(true).await,
-            Statement::Finish => self.stop(false).await,
+            Statement::Clear => {
+                self.ctx.window.lock().clear();
+                self.ret(DbgAction::Sleep, true).await;
+            }
+            Statement::Stop => self.ret(DbgAction::Finished(true), true).await,
+            Statement::Finish => self.ret(DbgAction::Finished(false), true).await,
             Statement::PathCall(id, args) => {
                 let path = self.prog.get_path(*id).expect("should be caught by parser");
                 let args = self.dbg_args(args).await;
@@ -123,18 +149,26 @@ impl<'p> DebugTask<'p> {
             }
             Statement::Store(expr, var) => {
                 let val = self.dbg_expr(expr).await;
-                self.turtle.lock().set_var(var, val);
+                self.turtle.lock().set_var(&self.ctx, var, val);
             }
             Statement::Calc { var, val, op } => {
-                let lhs = self.turtle.lock().get_var(var);
+                let lhs = self.turtle.lock().get_var(&self.ctx, var);
                 let rhs = self.dbg_expr(val).await;
-                self.turtle.lock().set_var(var, op.eval(&lhs, &rhs));
+                self.turtle.lock().set_var(&self.ctx, var, op.eval(&lhs, &rhs));
             }
             Statement::Mark => self.turtle.lock().new_mark(),
-            Statement::MoveMark(draw) => self.turtle.lock().move_mark(*draw),
+            Statement::MoveMark(draw) => {
+                self.turtle.lock().move_mark(&self.ctx, *draw);
+                self.ret(DbgAction::Sleep, *draw).await;
+            }
             Statement::Print(expr) => {
                 println!("Turtle says: {}", self.dbg_expr(expr).await.string())
             }
+            Statement::Split(id, args) => {
+                let args = self.dbg_args(args).await;
+                let _ = self.action.send((DbgAction::Split(*id, args), self.curr_pos));
+            }
+            Statement::Wait => self.ret(DbgAction::Sleep, true).await,
             Statement::IfBranch(cond, stmts) => {
                 if self.dbg_expr(cond).await.bool() {
                     self.dbg_block(stmts).await;
@@ -168,11 +202,11 @@ impl<'p> DebugTask<'p> {
                         Some(expr) => self.dbg_expr(expr).await.num(),
                         None => 1.0,
                     };
-                self.turtle.lock().set_var(counter, Value::Number(init));
-                while *up != (self.turtle.lock().get_var(counter).num() >= end) {
+                self.turtle.lock().set_var(&self.ctx, counter, Value::Number(init));
+                while *up != (self.turtle.lock().get_var(&self.ctx, counter).num() >= end) {
                     self.dbg_block(body).await;
-                    let next_val = self.turtle.lock().get_var(counter).num() + step;
-                    self.turtle.lock().set_var(counter, Value::Number(next_val));
+                    let next_val = self.turtle.lock().get_var(&self.ctx, counter).num() + step;
+                    self.turtle.lock().set_var(&self.ctx, counter, Value::Number(next_val));
                 }
             }
             Statement::WhileLoop(cond, stmts) => {
@@ -193,7 +227,7 @@ impl<'p> DebugTask<'p> {
         let fut = async {
             match &expr.kind {
                 ExprKind::Const(val) => val.clone(),
-                ExprKind::Variable(var) => self.turtle.lock().get_var(var),
+                ExprKind::Variable(var) => self.turtle.lock().get_var(&self.ctx, var),
                 ExprKind::BiOperation(lhs, op, rhs) => {
                     let lhs = self.dbg_expr(lhs).await;
                     let rhs = self.dbg_expr(rhs).await;
@@ -237,15 +271,11 @@ impl<'p> DebugTask<'p> {
         res
     }
 
-    async fn stop(&mut self, wait: bool) {
-        *self.finished.lock() = true;
-        if wait {
-            println!("halt and catch fire");
-            while self.turtle.lock().window.keys_pressed().is_ok() {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
+    async fn ret(&mut self, act: DbgAction<'p>, cond: bool) {
+        if cond {
+            let _ = self.action.send((act, self.curr_pos));
+            // yield control
+            TurtleFuture(false).await;
         }
-        // yield control
-        TurtleFuture(false).await;
     }
 }

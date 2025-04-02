@@ -199,8 +199,10 @@ impl Pos<Statement> {
             | Statement::Stop
             | Statement::Finish
             | Statement::Mark
+            | Statement::Wait
             | Statement::MoveMark(_) => Ok(Vars::new()),
-            Statement::PathCall(id, exprs) => {
+            Statement::PathCall(id, exprs)
+            | Statement::Split(id, exprs) => {
                 check_args(exprs, &ctx.protos[&*id].clone().args, e_map, ctx)
             }
             Statement::Store(expr, var) => {

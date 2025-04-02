@@ -123,4 +123,6 @@ keyword_enum! {
     Print if Types,
     Substr if Types,
     Strlen if Types,
+    Split if Multithreading,
+    Wait if Multithreading,
 }

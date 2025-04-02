@@ -29,6 +29,8 @@ pub enum Statement {
     Mark,
     MoveMark(bool),
     Print(Expr),
+    Split(usize, ArgList),
+    Wait,
     IfBranch(Expr, Block),
     IfElseBranch(Expr, Block, Block),
     DoLoop(Expr, Block),
@@ -134,6 +136,17 @@ impl Statement {
                 println!("{} to last mark", if *draw { "walked" } else { "jumped" })
             }
             Statement::Print(txt) => println!("printed {}", txt.narrate(symbols)),
+            Statement::Split(id, args) => {
+                println!(
+                    "split path {}({})",
+                    symbols
+                        .get_index(*id)
+                        .expect("missing path in symbol table")
+                        .0,
+                    args.narrate(symbols),
+                )
+            }
+            Statement::Wait => println!("waited"),
             Statement::IfBranch(_, _) => println!("finished if"),
             Statement::IfElseBranch(_, _, _) => println!("finished if-else"),
             Statement::DoLoop(_, _) => println!("finished do loop"),

@@ -1,5 +1,5 @@
 use crate::{
-    debugger::ItpRunner, features::FeatureConf, tokens::{ArgDefList, Block, Expr, ParseToken, ValType}, DebugRunner, Identified, SymbolTable, TurtleError
+    debugger::{window::SdlWindow, DebugRun}, features::FeatureConf, pos::FilePos, tokens::{ArgDefList, Block, Expr, ParseToken, ValType}, Identified, SymbolTable, TurtleError
 };
 
 use lexer::Lexer;
@@ -43,6 +43,8 @@ impl RawProg {
             paths: self.paths,
             calcs: self.calcs,
             main,
+            key_event: None,
+            mouse_event: None,
             symbols,
         })
     }
@@ -56,6 +58,8 @@ pub struct TProgram {
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
     pub main: Block,
+    pub key_event: Option<PathDef>,
+    pub mouse_event: Option<PathDef>,
     pub symbols: SymbolTable,
 }
 
@@ -139,13 +143,11 @@ impl TProgram {
     }
 
     pub fn interpret(&self, args: &[String]) {
-        ItpRunner::new(self, args, &self.title("Interpreter")).run();
+        DebugRun::new(self, args, SdlWindow::new(&self.title("Interpreter")), false, Vec::new()).run();
     }
 
-    pub fn debug(&self, args: &[String], breakpoints: &[String]) {
-        let mut dbg = DebugRunner::new(self, args, &self.title("Debugger"));
-        dbg.set_breakpoints(breakpoints);
-        dbg.run();
+    pub fn debug(&self, args: &[String], breakpoints: Vec<FilePos>) {
+        DebugRun::new(self, args, SdlWindow::new(&self.title("Debugger")), true, breakpoints).run_debug();
     }
 }
 

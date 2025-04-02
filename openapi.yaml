@@ -1,0 +1,85 @@
+openapi: 3.1.1
+info:
+  title: Turtle
+  description: API for turtle graphics webserver
+  version: 0.1.0
+tags:
+  - name: examples
+    description: view some example programs
+  - name: programming
+    description: write your own program
+  - name: running
+    description: let the turtle draw!
+paths:
+  /examples:
+    get:
+      tags: [examples]
+      summary: list available examples
+      operationId: listExamples
+  /examples/{id}:
+    get:
+      tags: [examples]
+      summary: get example details
+      operationId: getExampleMeta
+  /examples/{id}/code:
+    get:
+      tags: [examples]
+      summary: get example code
+      operationId: getExampleCode
+  /examples/{id}/preview:
+    get:
+      tags: [examples]
+      summary: get example preview
+      operationId: getExampleImg
+  /prog:
+    post:
+      tags: [programming]
+      summary: Initialise a new program
+      description: Initialise a new program
+      operationId: initProg
+      responses:
+        '204':
+          description: program initialised
+  /prog/{id}:
+    get:
+      tags: [programming]
+      summary: get info about program
+      operationId: getProgMeta
+    put:
+      tags: [programming]
+      summary: change info about program
+      operationId: setProgMeta
+  /prog/{id}/check:
+    post:
+      tags: [programming]
+      summary: check program code
+      operationId: checkProg
+  /prog/{id}/code:
+    get:
+      tags: [programming]
+      summary: get code of program
+      operationId: getProgCode
+    put:
+      tags: [programming]
+      summary: set code of program
+      operationId: setProgCode
+  /examples/{id}/run:
+    post:
+      tags: [running]
+      summary: run an example
+      operationId: startRunExample
+  /prog/{id}/run:
+    post:
+      tags: [running]
+      summary: start a program
+      operationId: startRun
+  /run/{id}/events:
+    get:
+      tags: [running]
+      summary: poll for events from run
+      operationId: runEvents
+  /run/{id}/stop:
+    post:
+      tags: [running]
+      summary: end a run
+      operationId: stopRun

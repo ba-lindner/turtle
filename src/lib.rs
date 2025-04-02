@@ -6,13 +6,12 @@ use pos::*;
 use prog::{parser::ParseError, TypeError};
 
 pub use ccomp::CComp;
-pub use debugger::runner::DebugRunner;
 pub use prog::TProgram;
 
 mod ccomp;
 mod debugger;
 pub mod features;
-mod pos;
+pub mod pos;
 mod prog;
 pub mod tokens;
 

@@ -25,7 +25,7 @@ impl Parser<'_, '_> {
             Keyword::Clear => Ok(Statement::Clear),
             Keyword::Stop => Ok(Statement::Stop),
             Keyword::Finish => Ok(Statement::Finish),
-            Keyword::Path => self.parse_path_call(),
+            Keyword::Path => self.parse_path_call(false),
             Keyword::Store => {
                 let expr = self.parse_expr()?;
                 self.expect_keyword(Keyword::In)?;
@@ -50,6 +50,8 @@ impl Parser<'_, '_> {
                 self.expect_feature(Feature::Types)?;
                 Ok(Statement::Print(self.parse_expr()?))
             }
+            Keyword::Split => self.parse_path_call(true),
+            Keyword::Wait => Ok(Statement::Wait),
             Keyword::If => self.parse_if(fp),
             Keyword::Do => {
                 let expr = self.parse_expr()?;
@@ -113,7 +115,7 @@ impl Parser<'_, '_> {
         Ok(Statement::Color(expr_red, expr_green, expr_blue))
     }
 
-    pub(super) fn parse_path_call(&mut self) -> PRes<Statement> {
+    pub(super) fn parse_path_call(&mut self, split: bool) -> PRes<Statement> {
         let name = self.match_identifier()?;
         let args = if self.lookahead() == Some(LexToken::Symbol('(')) {
             self.parse_args(None)?
@@ -121,7 +123,11 @@ impl Parser<'_, '_> {
             Vec::new()
         };
         self.set_ident_type(name, Identified::Path(args.len()))?;
-        Ok(Statement::PathCall(name, args))
+        if split {
+            Ok(Statement::Split(name, args))
+        } else {
+            Ok(Statement::PathCall(name, args))
+        }
     }
 
     pub(super) fn parse_calc_stm(

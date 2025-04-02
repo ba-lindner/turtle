@@ -328,6 +328,18 @@ mod test {
         };
     }
 
+    macro_rules! assert_lex {
+        ($lex:ident, $($line:literal,$col:literal $token:expr),+ $(,)?) => {
+            #[allow(unused_imports)]
+            {
+                use crate::tokens::{Keyword::*, PredefVar::*};
+                use LexToken::*;
+                $(assert_eq!($lex.next_token(), Some(Ok($token).attach_pos(FilePos::new($line, $col))));)+
+                assert_eq!($lex.next_token(), None);
+            }
+        };
+    }
+
     #[test]
     fn empty() {
         lex_this!(lex, "");
@@ -360,6 +372,6 @@ mod test {
     #[test]
     fn num_literal() {
         lex_this!(lex, ".123");
-        assert_eq!(*lex.next().unwrap(), Ok(LexToken::FloatLiteral(0.123)));
+        assert_lex!(lex, 1,1 FloatLiteral(0.123));
     }
 }

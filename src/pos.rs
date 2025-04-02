@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, num::ParseIntError, str::FromStr};
 
 /// A position in a file.
 ///
@@ -22,6 +22,25 @@ impl FilePos {
 impl Display for FilePos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "line {}, column {}", self.line, self.column)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FilePosParseErr {
+    #[error("no delimiter")]
+    NoDelimiter,
+    #[error("{0}")]
+    ParseError(#[from] ParseIntError)
+}
+
+impl FromStr for FilePos {
+    type Err = FilePosParseErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (line, column) = s
+            .split_once(|c: char| !c.is_ascii_digit())
+            .ok_or(FilePosParseErr::NoDelimiter)?;
+        Ok(Self::new(line.parse()?, column.parse()?))
     }
 }
 

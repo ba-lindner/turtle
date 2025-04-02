@@ -1,5 +1,20 @@
 # TODOs
 
+- [ ] Implement more features
+  - [ ] Multithreading
+  - [ ] Events
+  - [ ] Parameters
+- [ ] Turtle Webserver
+  - [ ] add `Window` trait
+  - [ ] implement buffered Window
+  - [ ] implement API Window
+  - [ ] write Client
+- [ ] Compiler rewrite
+  - [ ] return errors for unsupported features
+  - [ ] actually support some features
+  - [ ] add ability to choose language
+  - [ ] better output configuration
+
 ## General
 
 * Multi-language support. As this tool is intended to be used for

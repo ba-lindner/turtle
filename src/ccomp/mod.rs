@@ -176,6 +176,8 @@ impl CComp {
             )],
             Statement::Mark => vec![String::from("__ttl_set_mark();")],
             Statement::Print(_) => todo!(),
+            Statement::Split(_, _) => todo!(),
+            Statement::Wait => todo!(),
             Statement::MoveMark(draw) => vec![format!("__ttl_load_mark({draw});")],
             Statement::IfBranch(cond, stmts) => {
                 let mut res = vec![format!("if ({}) {{", self.comp_expr(ctx, cond))];

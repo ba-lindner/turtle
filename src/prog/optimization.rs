@@ -96,7 +96,8 @@ impl Pos<Statement> {
                 g.const_fold();
                 b.const_fold();
             }
-            Statement::PathCall(_, exprs) => {
+            Statement::PathCall(_, exprs) |
+            Statement::Split(_, exprs) => {
                 for e in exprs {
                     e.const_fold();
                 }
@@ -106,7 +107,8 @@ impl Pos<Statement> {
             Statement::Stop |
             Statement::Finish |
             Statement::Mark |
-            Statement::MoveMark(_) => {}
+            Statement::MoveMark(_) |
+            Statement::Wait => {}
         };
 
         let to_bool = |v: Value| v.bool();

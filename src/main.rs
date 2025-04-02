@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use std::process::Command;
-use turtle::{features::{Feature, FeatureConf, FeatureState}, TProgram};
+use turtle::{features::{Feature, FeatureConf, FeatureState}, pos::FilePos, TProgram};
 
 #[derive(Parser)]
 #[command(version)]
@@ -28,7 +28,7 @@ enum TCommand {
         source: Source,
         /// set breakpoints in format line,column
         #[arg(short, long)]
-        breakpoint: Vec<String>,
+        breakpoint: Vec<FilePos>,
         /// args passed to turtle
         #[arg(last = true)]
         args: Vec<String>,
@@ -111,7 +111,7 @@ fn main() {
             source,
             breakpoint: bp,
             args,
-        } => source.get_prog().debug(&args, &bp),
+        } => source.get_prog().debug(&args, bp),
         TCommand::Compile {
             source,
             debug,
