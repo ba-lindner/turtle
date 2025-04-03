@@ -125,4 +125,8 @@ keyword_enum! {
     Strlen if Types,
     Split if Multithreading,
     Wait if Multithreading,
+    Event if Events,
+    EndEvent if Events,
+    Key if Events,
+    Mouse if Events,
 }

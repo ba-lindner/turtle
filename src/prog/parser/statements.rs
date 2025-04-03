@@ -50,8 +50,14 @@ impl Parser<'_, '_> {
                 self.expect_feature(Feature::Types)?;
                 Ok(Statement::Print(self.parse_expr()?))
             }
-            Keyword::Split => self.parse_path_call(true),
-            Keyword::Wait => Ok(Statement::Wait),
+            Keyword::Split => {
+                self.expect_feature(Feature::Multithreading)?;
+                self.parse_path_call(true)
+            }
+            Keyword::Wait => {
+                self.expect_feature(Feature::Multithreading)?;
+                Ok(Statement::Wait)
+            }
             Keyword::If => self.parse_if(fp),
             Keyword::Do => {
                 let expr = self.parse_expr()?;

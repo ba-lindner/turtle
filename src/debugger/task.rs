@@ -3,7 +3,7 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 use parking_lot::Mutex;
 
 use crate::{
-    debugger::varlist::VarList, pos::FilePos, prog::PathDef, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram
+    debugger::{turtle::FuncType, varlist::VarList}, pos::FilePos, prog::PathDef, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram
 };
 
 use super::{turtle::Turtle, window::Window, DbgAction, EventKind, GlobalCtx};
@@ -59,7 +59,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
 
     pub async fn execute_path(mut self, name: usize, args: Vec<Value>) {
         let path = self.prog.get_path(name).expect("path should exist");
-        self.exec_path_def(path, args).await;
+        self.exec_path_def(path, args, FuncType::Path(name)).await;
     }
 
     pub async fn execute_event(mut self, kind: EventKind, args: Vec<Value>) {
@@ -68,18 +68,18 @@ impl<'p, W: Window> DebugTask<'p, W> {
             EventKind::Key => &self.prog.key_event,
         };
         if let Some(evt) = evt {
-            self.exec_path_def(evt, args).await;
+            self.exec_path_def(evt, args, FuncType::Event(kind)).await;
         }
     }
 
-    async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>) {
+    async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
         assert_eq!(path.args.len(), args.len());
         let mut ttl = self.turtle.lock();
         let (func, vars) = ttl.stack.last_mut().unwrap();
         for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
             vars.set_var(arg, val);
         }
-        *func = Some(path.name);
+        *func = ft;
         drop(ttl);
         self.dbg_block(&path.body).await;
     }
@@ -143,7 +143,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
                 for (i, arg) in args.into_iter().enumerate() {
                     vars.set_var(path.args[i].0, arg);
                 }
-                self.turtle.lock().stack.push((Some(*id), vars));
+                self.turtle.lock().stack.push((FuncType::Path(*id), vars));
                 self.dbg_block(&path.body).await;
                 self.turtle.lock().stack.pop();
             }
@@ -252,7 +252,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
                     for (i, arg) in args.into_iter().enumerate() {
                         vars.set_var(calc.args[i].0, arg);
                     }
-                    self.turtle.lock().stack.push((Some(*id), vars));
+                    self.turtle.lock().stack.push((FuncType::Calc(*id), vars));
                     self.dbg_block(&calc.body).await;
                     let res = self.dbg_expr(&calc.ret).await;
                     self.turtle.lock().stack.pop();

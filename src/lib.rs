@@ -7,6 +7,7 @@ use prog::{parser::ParseError, TypeError};
 
 pub use ccomp::CComp;
 pub use prog::TProgram;
+use tokens::{EventKind, ValType};
 
 mod ccomp;
 mod debugger;
@@ -76,4 +77,10 @@ pub enum TurtleError {
     TypeError(TypeError, FilePos),
     #[error("{0} at {1} - {2}")]
     TypeErrorSpan(TypeError, FilePos, FilePos),
+    #[error("multiple handlers for {0} events defined at {1}, {2}")]
+    MultipleEventHandler(EventKind, FilePos, FilePos),
+    #[error("{0} event handler has incorrect number of arguments: got {1}, expected {2}")]
+    EventArgsLength(EventKind, usize, usize),
+    #[error("{0} event handler has wrong type of argument at index {1}: got {2}, expected {3}")]
+    EventArgsType(EventKind, usize, ValType, ValType),
 }

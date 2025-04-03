@@ -1,5 +1,5 @@
 use crate::{
-    debugger::{window::SdlWindow, DebugRun}, features::FeatureConf, pos::FilePos, tokens::{ArgDefList, Block, Expr, ParseToken, ValType}, Identified, SymbolTable, TurtleError
+    debugger::{window::SdlWindow, DebugRun}, features::FeatureConf, pos::FilePos, tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType}, Identified, SymbolTable, TurtleError
 };
 
 use lexer::Lexer;
@@ -16,6 +16,8 @@ struct RawProg {
     paths: Vec<PathDef>,
     calcs: Vec<CalcDef>,
     main: Option<Block>,
+    key_event: Option<PathDef>,
+    mouse_event: Option<PathDef>,
 }
 
 impl RawProg {
@@ -28,6 +30,16 @@ impl RawProg {
                     return Err(TurtleError::MultipleMains(main.begin, block.begin));
                 }
                 self.main = Some(block);
+            }
+            ParseToken::EventHandler(kind, func) => {
+                let curr = match kind {
+                    EventKind::Mouse => &mut self.mouse_event,
+                    EventKind::Key => &mut self.key_event,
+                };
+                if let Some(evt) = curr {
+                    return Err(TurtleError::MultipleEventHandler(kind, evt.body.begin, func.body.begin));
+                }
+                *curr = Some(func);
             }
         }
         Ok(())
@@ -43,8 +55,8 @@ impl RawProg {
             paths: self.paths,
             calcs: self.calcs,
             main,
-            key_event: None,
-            mouse_event: None,
+            key_event: self.key_event,
+            mouse_event: self.mouse_event,
             symbols,
         })
     }

@@ -2,17 +2,25 @@ use std::f64::consts::PI;
 
 use crate::{
     pos::FilePos,
-    tokens::{PredefVar, Value, Variable, VariableKind},
+    tokens::{EventKind, PredefVar, Value, Variable, VariableKind},
     SymbolTable,
 };
 
 use super::{varlist::VarList, window::Window, GlobalCtx, TColor, TCoord};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuncType {
+    Main,
+    Path(usize),
+    Calc(usize),
+    Event(EventKind),
+}
+
 #[derive(Clone)]
 pub struct Turtle {
     pos: TCoord,
     pub dir: f64,
-    pub stack: Vec<(Option<usize>, VarList)>,
+    pub stack: Vec<(FuncType, VarList)>,
     marks: Vec<(TCoord, f64)>,
     col: TColor,
 }
@@ -22,7 +30,7 @@ impl Turtle {
         Self {
             pos: (0.0, 0.0),
             dir: 0.0,
-            stack: vec![(None, VarList::new())],
+            stack: vec![(FuncType::Main, VarList::new())],
             marks: Vec::new(),
             col: super::START_COLOR,
         }
@@ -32,8 +40,8 @@ impl Turtle {
         Self {
             pos: self.pos,
             dir: self.dir,
-            stack: vec![(None, VarList::new())],
-            marks: Vec::new(),
+            stack: vec![(FuncType::Main, VarList::new())],
+            marks: self.marks.clone(),
             col: self.col,
         }
     }

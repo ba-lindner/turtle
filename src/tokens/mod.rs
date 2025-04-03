@@ -51,10 +51,26 @@ impl Narrate for [Expr] {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    Mouse,
+    Key,
+}
+
+impl Display for EventKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EventKind::Mouse => write!(f, "mouse"),
+            EventKind::Key => write!(f, "key"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ParseToken {
     PathDef(PathDef),
     CalcDef(CalcDef),
+    EventHandler(EventKind, PathDef),
     StartBlock(Block),
 }
 

@@ -28,6 +28,7 @@ impl CheckContext {
 impl TProgram {
     pub(crate) fn semantic_check(&mut self) -> Result<(), TurtleError> {
         self.check_idents()?;
+        self.check_event_args()?;
         let mut ctx = CheckContext {
             features: self.features,
             protos: self
@@ -49,6 +50,20 @@ impl TProgram {
         for i in 0..self.paths.len() {
             checks.push(Box::new(move |prog, ctx| prog.paths[i].semantic_check(ctx)));
         }
+        checks.push(Box::new(move |prog, ctx| {
+            if let Some(evt) = &mut prog.key_event {
+                evt.semantic_check(ctx)
+            } else {
+                Ok(true)
+            }
+        }));
+        checks.push(Box::new(move |prog, ctx| {
+            if let Some(evt) = &mut prog.mouse_event {
+                evt.semantic_check(ctx)
+            } else {
+                Ok(true)
+            }
+        }));
         while !checks.is_empty() {
             let prev_undef = ctx.var_count();
             let prev_checks = checks.len();
@@ -72,6 +87,27 @@ impl TProgram {
                 ));
             }
             checks = unfinished;
+        }
+        Ok(())
+    }
+
+    fn check_event_args(&self) -> Result<(), TurtleError> {
+        fn check_args(kind: EventKind, is: &[(usize, ValType)], should: &[ValType]) -> Result<(), TurtleError> {
+            if is.len() != should.len() {
+                return Err(TurtleError::EventArgsLength(kind, is.len(), should.len()))
+            }
+            for idx in 0..is.len() {
+                if is[idx].1 != should[idx] {
+                    return Err(TurtleError::EventArgsType(kind, idx, is[idx].1, should[idx]));
+                }
+            }
+            Ok(())
+        }
+        if let Some(evt) = &self.key_event {
+            check_args(EventKind::Key, &evt.args, &[ValType::String])?;
+        }
+        if let Some(evt) = &self.mouse_event {
+            check_args(EventKind::Mouse, &evt.args, &[ValType::Number, ValType::Number, ValType::Boolean])?;
         }
         Ok(())
     }

@@ -45,6 +45,8 @@ impl<'s, 'f> Parser<'s, 'f> {
             self.parse_calc(begin)
         } else if self.match_keyword(Keyword::Begin) {
             self.parse_main(begin)
+        } else if self.match_keyword(Keyword::Event) {
+            self.parse_event(begin)
         } else {
             Err(self.unexpected_token(TokenExpectation::BlockStart))
         })
@@ -59,6 +61,11 @@ impl<'s, 'f> Parser<'s, 'f> {
         self.eof()?;
         self.pos += 1;
         Some((*self.ltokens[self.pos - 1]).clone())
+    }
+
+    fn next_token_err(&mut self) -> PRes<LexToken> {
+        self.next_token()
+            .ok_or(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))
     }
 
     fn match_keyword(&mut self, kw: Keyword) -> bool {
@@ -128,12 +135,30 @@ impl<'s, 'f> Parser<'s, 'f> {
 
     fn parse_type(&mut self) -> PRes<ValType> {
         self.expect_feature(Feature::Types)?;
-        Ok(match self.next_token() {
-            Some(LexToken::Keyword(Keyword::Num)) => ValType::Number,
-            Some(LexToken::Keyword(Keyword::String)) => ValType::String,
-            Some(LexToken::Keyword(Keyword::Bool)) => ValType::Boolean,
-            _ => return Err(self.unexpected_token(TokenExpectation::ValType)),
+        Ok(match self.next_token_err()? {
+            LexToken::Keyword(Keyword::Num) => ValType::Number,
+            LexToken::Keyword(Keyword::String) => ValType::String,
+            LexToken::Keyword(Keyword::Bool) => ValType::Boolean,
+            _ => return Err(self.unexpected_last_token(TokenExpectation::ValType)),
         })
+    }
+
+    fn parse_event(&mut self, begin: FilePos) -> PRes<ParseToken> {
+        self.expect_feature(Feature::Events)?;
+        let kind = match self.next_token_err()? {
+            LexToken::Keyword(Keyword::Mouse) => EventKind::Mouse,
+            LexToken::Keyword(Keyword::Key) => EventKind::Key,
+            _ => return Err(self.unexpected_last_token(TokenExpectation::EventKind)),
+        };
+        let args = self.parse_proto_args(false)?;
+        Ok(ParseToken::EventHandler(
+            kind,
+            PathDef {
+                name: 0,
+                args,
+                body: self.parse_statements(begin, Keyword::EndEvent)?,
+            },
+        ))
     }
 
     fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
@@ -209,10 +234,7 @@ impl<'s, 'f> Parser<'s, 'f> {
 
     fn parse_variable(&mut self) -> PRes<Variable> {
         let pos = self.curr_pos();
-        let token = self
-            .next_token()
-            .ok_or(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))?;
-        match token {
+        match self.next_token_err()? {
             LexToken::GlobalVar(id) => {
                 self.set_ident_type(id, Identified::GlobalVar)?;
                 Ok(Variable {
@@ -328,80 +350,69 @@ impl<'s, 'f> Parser<'s, 'f> {
 
     fn parse_operand(&mut self) -> PRes<Expr> {
         let start = self.curr_pos();
-        Ok(
-            match self
-                .next_token()
-                .ok_or(ParseError::UnexpectedEnd.attach_pos(start))?
-            {
-                LexToken::Symbol('(') => {
+        Ok(match self.next_token_err()? {
+            LexToken::Symbol('(') => {
+                let expr = self.parse_expr()?;
+                self.expect_symbol(')')?;
+                ExprKind::Bracket(Box::new(expr)).at(start, self.last_pos())
+            }
+            LexToken::Symbol('|') => {
+                let expr = self.parse_expr()?;
+                self.expect_symbol('|')?;
+                ExprKind::Absolute(Box::new(expr)).at(start, self.last_pos())
+            }
+            LexToken::Symbol('-') => {
+                ExprKind::UnOperation(UnOperator::Negate, Box::new(self.parse_operand()?))
+                    .at(start, self.last_pos())
+            }
+            LexToken::Keyword(Keyword::Not) => {
+                ExprKind::UnOperation(UnOperator::Not, Box::new(self.parse_operand()?))
+                    .at(start, self.last_pos())
+            }
+            LexToken::IntLiteral(i) => ExprKind::Const(Value::Number(i as f64)).at(start, start),
+            LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)).at(start, start),
+            LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)).at(start, start),
+            LexToken::Keyword(Keyword::True) => {
+                ExprKind::Const(Value::Boolean(true)).at(start, start)
+            }
+            LexToken::Keyword(Keyword::False) => {
+                ExprKind::Const(Value::Boolean(false)).at(start, start)
+            }
+            LexToken::GlobalVar(v) => {
+                ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start)).at(start, start)
+            }
+            LexToken::PredefVar(pdv) => {
+                ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start)).at(start, start)
+            }
+            LexToken::Keyword(kw) => {
+                if let Some(pdf) = PredefFunc::parse(kw) {
+                    let args = self.parse_args(Some(pdf.args().len()))?;
+                    ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
+                } else if let Some(conv) = ValType::parse(kw) {
+                    self.expect_feature(Feature::Types)?;
+                    self.expect_symbol('(')?;
                     let expr = self.parse_expr()?;
                     self.expect_symbol(')')?;
-                    ExprKind::Bracket(Box::new(expr)).at(start, self.last_pos())
+                    ExprKind::Convert(Box::new(expr), conv).at(start, self.last_pos())
+                } else {
+                    return Err(self.unexpected_last_token(TokenExpectation::PredefFunc));
                 }
-                LexToken::Symbol('|') => {
-                    let expr = self.parse_expr()?;
-                    self.expect_symbol('|')?;
-                    ExprKind::Absolute(Box::new(expr)).at(start, self.last_pos())
-                }
-                LexToken::Symbol('-') => {
-                    ExprKind::UnOperation(UnOperator::Negate, Box::new(self.parse_operand()?))
-                        .at(start, self.last_pos())
-                }
-                LexToken::Keyword(Keyword::Not) => {
-                    ExprKind::UnOperation(UnOperator::Not, Box::new(self.parse_operand()?))
-                        .at(start, self.last_pos())
-                }
-                LexToken::IntLiteral(i) => {
-                    ExprKind::Const(Value::Number(i as f64)).at(start, start)
-                }
-                LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)).at(start, start),
-                LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)).at(start, start),
-                LexToken::Keyword(Keyword::True) => {
-                    ExprKind::Const(Value::Boolean(true)).at(start, start)
-                }
-                LexToken::Keyword(Keyword::False) => {
-                    ExprKind::Const(Value::Boolean(false)).at(start, start)
-                }
-                LexToken::GlobalVar(v) => {
-                    ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start))
+            }
+            LexToken::Identifier(id) => {
+                if self.lookahead() == Some(LexToken::Symbol('(')) {
+                    let args = self.parse_args(None)?;
+                    self.set_ident_type(id, Identified::Calc(args.len()))?;
+                    ExprKind::CalcCall(id, args).at(start, self.last_pos())
+                } else {
+                    self.set_ident_type(id, Identified::LocalVar)?;
+                    ExprKind::Variable(VariableKind::Local(id, ValType::Any).at(start))
                         .at(start, start)
                 }
-                LexToken::PredefVar(pdv) => {
-                    ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start)).at(start, start)
-                }
-                LexToken::Keyword(kw) => {
-                    if let Some(pdf) = PredefFunc::parse(kw) {
-                        let args = self.parse_args(Some(pdf.args().len()))?;
-                        ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
-                    } else if let Some(conv) = ValType::parse(kw) {
-                        self.expect_feature(Feature::Types)?;
-                        self.expect_symbol('(')?;
-                        let expr = self.parse_expr()?;
-                        self.expect_symbol(')')?;
-                        ExprKind::Convert(Box::new(expr), conv).at(start, self.last_pos())
-                    } else {
-                        self.pos -= 1;
-                        return Err(self.unexpected_token(TokenExpectation::PredefFunc));
-                    }
-                }
-                LexToken::Identifier(id) => {
-                    if self.lookahead() == Some(LexToken::Symbol('(')) {
-                        let args = self.parse_args(None)?;
-                        self.set_ident_type(id, Identified::Calc(args.len()))?;
-                        ExprKind::CalcCall(id, args).at(start, self.last_pos())
-                    } else {
-                        self.set_ident_type(id, Identified::LocalVar)?;
-                        ExprKind::Variable(VariableKind::Local(id, ValType::Any).at(start))
-                            .at(start, start)
-                    }
-                }
-                t => {
-                    return Err(
-                        ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start)
-                    )
-                }
-            },
-        )
+            }
+            t => {
+                return Err(ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start))
+            }
+        })
     }
 
     fn parse_args(&mut self, count: Option<usize>) -> PRes<Vec<Expr>> {
@@ -470,10 +481,15 @@ impl<'s, 'f> Parser<'s, 'f> {
 
     fn unexpected_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {
         let pos = self.curr_pos();
-        let Some(token) = self.next_token() else {
-            return ParseError::UnexpectedEnd.attach_pos(pos);
-        };
-        ParseError::UnexpectedToken(token, expected).attach_pos(pos)
+        match self.next_token_err() {
+            Ok(t) => ParseError::UnexpectedToken(t, expected).attach_pos(pos),
+            Err(eof) => eof,
+        }
+    }
+
+    fn unexpected_last_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {
+        self.pos -= 1;
+        self.unexpected_token(expected)
     }
 }
 
@@ -513,6 +529,7 @@ pub enum TokenExpectation {
     Expr,
     PredefFunc,
     ValType,
+    EventKind,
 }
 
 impl Display for TokenExpectation {
@@ -526,6 +543,7 @@ impl Display for TokenExpectation {
             TokenExpectation::Expr => write!(f, "expression"),
             TokenExpectation::PredefFunc => write!(f, "predefined function or type"),
             TokenExpectation::ValType => write!(f, "type"),
+            TokenExpectation::EventKind => write!(f, "event kind"),
         }
     }
 }

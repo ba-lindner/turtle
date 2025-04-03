@@ -1,0 +1,22 @@
+path circle(r, n)
+  store 180 - 360 / n in beta
+  store 2 * @pi * r / n in a
+
+  counter x from 0 to n do
+    walk a
+    turn left 180 - beta
+  done
+endpath
+
+begin
+  store 25 in @delay
+
+  jump back 20
+  do 7 times
+    do 10 times
+      walk 0.5
+    done
+    split circle(4, 40)
+  done
+  stop
+end

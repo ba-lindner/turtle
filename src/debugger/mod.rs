@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use varlist::VarList;
 use window::{Window, WindowEvent};
 
-use crate::{features::{Feature, FeatureState}, pos::FilePos, tokens::{PredefVar, Statement, StmtKind, Value}, TProgram};
+use crate::{features::{Feature, FeatureState}, pos::FilePos, tokens::{EventKind, PredefVar, Statement, StmtKind, Value}, TProgram};
 use runner::DebugRunner;
 
 mod runner;
@@ -47,9 +47,9 @@ impl Wake for TurtleWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-enum EventKind {
-    Mouse,
-    Key,
+enum ProgEnd {
+    WindowExited,
+    AllTurtlesFinished,
 }
 
 struct GlobalCtx<W> {
@@ -83,6 +83,7 @@ impl<W: Window> GlobalCtx<W> {
 
 pub struct DebugRun<'p, W> {
     prog: &'p TProgram,
+    debug: bool,
     ctx: Rc<GlobalCtx<W>>,
     turtles: Vec<DebugRunner<'p, W>>
 }
@@ -107,6 +108,7 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
         let runner = DebugRunner::new(prog, ctx.clone(), debug);
         Self {
             prog,
+            debug,
             ctx,
             turtles: vec![runner]
         }
@@ -116,13 +118,10 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
         while !self.turtles.is_empty() {
             self.turtles[0].run_sleep();
             self.sync_turtles();
-            thread::sleep(Duration::from_millis(*self.ctx.delay.lock() as u64));
-            for evt in self.ctx.window.lock().events() {
-                match evt {
-                    WindowEvent::WindowExited => return,
-                    WindowEvent::KeyPressed(_) => todo!(),
-                    WindowEvent::MouseClicked(_, _) => todo!(),
-                }
+            match self.after_draw() {
+                Ok(()) => {}
+                Err(ProgEnd::AllTurtlesFinished) => break,
+                Err(ProgEnd::WindowExited) => return,
             }
         }
         self.finished();
@@ -153,23 +152,43 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
         self.turtles.retain(|ttl| !ttl.finished);
     }
 
-    fn after_draw(&mut self) -> bool {
+    fn after_draw(&mut self) -> Result<(), ProgEnd> {
         thread::sleep(Duration::from_millis(*self.ctx.delay.lock() as u64));
         if self.turtles.is_empty() {
-            return true;
+            return Err(ProgEnd::AllTurtlesFinished);
         }
         let eventing = self.prog.features[Feature::Events] == FeatureState::Enabled;
         for evt in self.ctx.window.lock().events() {
             match evt {
-                WindowEvent::WindowExited => return true,
-                WindowEvent::KeyPressed(_) => todo!(),
-                WindowEvent::MouseClicked(_, _) => todo!(),
+                WindowEvent::WindowExited => return Err(ProgEnd::WindowExited),
+                WindowEvent::KeyPressed(c) => if eventing && self.prog.key_event.is_some() {
+                    self.turtles.push(DebugRunner::for_event(
+                        self.prog,
+                        self.ctx.clone(),
+                        self.debug,
+                        EventKind::Key,
+                        vec![Value::String(c.to_string())],
+                    ));
+                }
+                WindowEvent::MouseClicked(coord, btn) => if eventing && self.prog.mouse_event.is_some() {
+                    self.turtles.push(DebugRunner::for_event(
+                        self.prog,
+                        self.ctx.clone(),
+                        self.debug,
+                        EventKind::Mouse,
+                        vec![
+                            Value::Number(coord.0),
+                            Value::Number(coord.1),
+                            Value::Boolean(btn),
+                        ],
+                    ));
+                }
             }
         }
         // check window events
         // start event turtles
         // set 'main thread' values (narrator, breakpoints)
-        false
+        Ok(())
     }
 
     pub fn run_debug(&mut self) {
@@ -244,47 +263,50 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
             }
         }
 
-        let Some(cmd) = get_command() else {
-            return;
+        let mut exec_cmd = || {
+            let Some(cmd) = get_command() else {
+                return Err(ProgEnd::WindowExited);
+            };
+            match cmd {
+                DbgCommand::StepSingle(count) => for _ in 0..count { self.step_single()?; }
+                DbgCommand::StepOver(count) => for _ in 0..count { self.step_over()?; }
+                DbgCommand::StepTurtle => self.step_kind(StmtKind::Turtle)?,
+                DbgCommand::StepDraw => self.step_kind(StmtKind::Draw)?,
+                DbgCommand::Run => self.run_breakpoints()?,
+                DbgCommand::ToggleNarrate => self.turtles[0].narrate = !self.turtles[0].narrate,
+                DbgCommand::Vardump => self.turtles[0].dump_vars(),
+                DbgCommand::CurrPos => self.turtles[0].print_pos(),
+            }
+            Ok(())
         };
-        match cmd {
-            DbgCommand::StepSingle(count) => for _ in 0..count { self.step_single(); }
-            DbgCommand::StepOver(count) => for _ in 0..count { self.step_over(); }
-            DbgCommand::StepTurtle => self.step_turtle(),
-            DbgCommand::StepDraw => self.step_draw(),
-            DbgCommand::Run => self.run_breakpoints(),
-            DbgCommand::ToggleNarrate => self.turtles[0].narrate = !self.turtles[0].narrate,
-            DbgCommand::Vardump => self.turtles[0].dump_vars(),
-            DbgCommand::CurrPos => self.turtles[0].print_pos(),
-        }
+        while exec_cmd().is_ok() {}
     }
 
-    fn step_single(&mut self) -> StmtKind {
+    fn step_single(&mut self) -> Result<StmtKind, ProgEnd> {
         let kind = self.turtles[0].step_single();
         if kind == StmtKind::Draw {
             self.sync_turtles();
+            self.after_draw()?;
         }
-        kind
+        Ok(kind)
     }
 
-    fn step_over(&mut self) {
+    fn step_over(&mut self) -> Result<(), ProgEnd> {
         let stack_size = self.turtles[0].stack_size();
-        self.step_single();
+        self.step_single()?;
         while self.turtles[0].stack_size() > stack_size {
-            self.step_single();
+            self.step_single()?;
         }
+        Ok(())
     }
 
-    fn step_turtle(&mut self) {
-
+    fn step_kind(&mut self, kind: StmtKind) -> Result<(), ProgEnd> {
+        while self.step_single()? < kind {}
+        Ok(())
     }
 
-    fn step_draw(&mut self) {
-
-    }
-
-    fn run_breakpoints(&mut self) {
-
+    fn run_breakpoints(&mut self) -> Result<(), ProgEnd> {
+        todo!()
     }
 
     fn finished(&self) {

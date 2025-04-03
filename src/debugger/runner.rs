@@ -9,13 +9,12 @@ use parking_lot::Mutex;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
-    tokens::{StmtKind, Value},
-    Identified, TProgram,
+    tokens::{StmtKind, Value}, TProgram,
 };
 
 use super::{
     task::DebugTask,
-    turtle::{self, Turtle},
+    turtle::{FuncType, Turtle},
     window::Window,
     DbgAction, EventKind, GlobalCtx, TurtleWaker,
 };
@@ -258,14 +257,15 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
                 DbgAction::AfterStmt(stmt) if self.narrate => {
                     stmt.narrate(&self.prog.symbols);
                 }
-                DbgAction::Sleep => break,
+                DbgAction::Sleep => return,
                 DbgAction::Finished(wait) => {
-                    self.finished = true;
                     *self.ctx.wait_end.lock() = wait;
+                    break;
                 }
                 _ => {}
             }
         }
+        self.finished = true;
     }
 
     pub fn step_single(&mut self) -> StmtKind {
@@ -291,7 +291,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         self.turtle.lock().dump_vars(&self.ctx, &self.prog.symbols);
     }
 
-    pub fn curr_func(&self) -> Option<usize> {
+    pub fn curr_func(&self) -> FuncType {
         self.turtle
             .lock()
             .stack
@@ -301,20 +301,12 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
     }
 
     pub fn print_pos(&self) {
-        if let Some(id) = self.curr_func() {
-            let sym = self
-                .prog
-                .symbols
-                .get_index(id)
-                .expect("missing function name");
-            let kind = match sym.1 {
-                Identified::Calc(_) => "calculation",
-                Identified::Path(_) => "path",
-                _ => unreachable!(),
-            };
-            println!("in {kind} {} at {}", sym.0, self.last_pos);
-        } else {
-            println!("in main block at {}", self.last_pos);
+        let name = |id| self.prog.symbols.get_index(id).unwrap().0;
+        match self.curr_func() {
+            FuncType::Main => println!("in main block at {}", self.last_pos),
+            FuncType::Path(id) => println!("in path {} at {}", name(id), self.last_pos),
+            FuncType::Calc(id) => println!("in calculation {} at {}", name(id), self.last_pos),
+            FuncType::Event(kind) => println!("in {kind} event handler at {}", self.last_pos),
         }
     }
 }

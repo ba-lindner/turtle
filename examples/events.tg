@@ -1,0 +1,16 @@
+event key(char: string)
+  print char
+endevent
+
+event mouse(x: num, y: num, l: bool)
+  if l then
+    store 'left' in btn
+  else
+    store 'right' in btn
+  endif
+  print btn + ' mouse click at ' + string(x) + ',' + string(y)
+endevent
+
+begin
+  while true do wait done
+end
