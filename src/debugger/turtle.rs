@@ -50,7 +50,7 @@ impl Turtle {
         let dir = if back { self.dir + 180.0 } else { self.dir };
         let next_pos = (
             self.pos.0 + (dir * PI / 180.0).cos() * dist,
-            self.pos.1 - (dir * PI / 180.0).sin() * dist,
+            self.pos.1 + (dir * PI / 180.0).sin() * dist,
         );
         self.move_to(ctx, next_pos, draw);
     }

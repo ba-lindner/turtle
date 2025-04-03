@@ -114,6 +114,7 @@ keyword_enum! {
     And,
     Or,
     Not,
+    Arctan,
     String if Types,
     Num if Types,
     Bool if Types,

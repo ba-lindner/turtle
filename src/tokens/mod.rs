@@ -175,4 +175,5 @@ predef_funcs! {
     Rand (min: f64, max: f64) -> f64 = min + (max - min) * rand::random::<f64>(),
     Substr (s: &str, start: f64, end: f64) -> &str = s[start as usize .. end as usize],
     Strlen (s: &str) -> f64 = s.len() as f64,
+    Arctan (a: f64) -> f64 = a.atan() * 180.0 / PI,
 }

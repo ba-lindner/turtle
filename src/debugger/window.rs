@@ -55,7 +55,7 @@ impl SdlWindow {
     fn map_coords(&self, point: TCoord) -> Point {
         Point::new(
             (WIDTH as f64 / 2.0 * (1.0 + point.0 / self.max_coord.0)) as i32,
-            (HEIGHT as f64 / 2.0 * (1.0 + point.1 / self.max_coord.1)) as i32,
+            (HEIGHT as f64 / 2.0 * (1.0 - point.1 / self.max_coord.1)) as i32,
         )
     }
 }
@@ -112,7 +112,7 @@ impl Window for SdlWindow {
                     x, y, mouse_btn, ..
                 } => {
                     let x = (x as f64 * 2.0 / WIDTH as f64 - 1.0) * self.max_coord.0;
-                    let y = (y as f64 * 2.0 / HEIGHT as f64 - 1.0) * self.max_coord.1;
+                    let y = (1.0 - y as f64 * 2.0 / HEIGHT as f64) * self.max_coord.1;
                     Some(WindowEvent::MouseClicked(
                         (x, y),
                         mouse_btn == sdl2::mouse::MouseButton::Left,

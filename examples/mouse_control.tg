@@ -1,0 +1,35 @@
+event mouse(x: num, y: num, btn: bool)
+  if btn then
+    store x in @target_x
+    store y in @target_y
+    print 'target is ' + string(x) + ',' + string(y)
+  endif
+endevent
+
+begin
+  store 0 in @target_x
+  store 0 in @target_y
+  store 20 in @delay
+  while true do
+    store sqrt((@x - @target_x) ^ 2 + (@y - @target_y) ^ 2) in dist
+    if dist > 0.1 then
+      if dist > 2 then store 2 in dist endif
+      div dist by 5
+      if @x = @target_x then
+        if @y > @target_y then
+          direction 270
+        else
+          direction 90
+        endif
+      else
+        if @x > @target_x then
+          direction arctan((@y - @target_y) / (@x - @target_x)) + 180
+        else
+          direction arctan((@y - @target_y) / (@x - @target_x))
+        endif
+      endif
+      walk dist
+    endif
+    wait
+  done
+end

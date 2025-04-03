@@ -1,0 +1,27 @@
+event key(char: string)
+  store char in @pressed
+endevent
+
+begin
+  store 20 in @delay
+  while true do
+    if @pressed = 'w' then
+      direction 90
+      walk 0.1
+    endif
+    if @pressed = 'a' then
+      direction 180
+      walk 0.1
+    endif
+    if @pressed = 's' then
+      direction 270
+      walk 0.1
+    endif
+    if @pressed = 'd' then
+      direction 0
+      walk 0.1
+    endif
+    store '' in @pressed
+    wait
+  done
+end

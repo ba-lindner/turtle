@@ -339,10 +339,21 @@ impl Expr {
                 Ok(Vars::new())
             }
             ExprKind::BiOperation(lhs, op, rhs) => {
-                for (inp, out) in op.types() {
-                    if out == ty {
-                        return Ok(lhs.expect_type(inp, ctx)? & rhs.expect_type(inp, ctx)?);
-                    }
+                let poss_types: Vec<_> = op
+                    .types()
+                    .into_iter()
+                    .filter_map(|(inp, out)| (out == ty).then_some(inp))
+                    .collect();
+                if poss_types.len() == 1 {
+                    return Ok(lhs.expect_type(poss_types[0], ctx)? & rhs.expect_type(poss_types[0], ctx)?);
+                }
+                let lhs_ty = lhs.val_type(ctx)?;
+                if lhs_ty.0 != ValType::Any && poss_types.contains(&lhs_ty.0) {
+                    return Ok(lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?);
+                }
+                let rhs_ty = rhs.val_type(ctx)?;
+                if rhs_ty.0 != ValType::Any && poss_types.contains(&rhs_ty.0) {
+                    return Ok(lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1);
                 }
                 Err(e_map(TypeError::BiOpWrongType(*op, ty)))
             }
