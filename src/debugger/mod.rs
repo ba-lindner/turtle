@@ -3,6 +3,7 @@ use std::{
 };
 
 use parking_lot::Mutex;
+use turtle::Turtle;
 use varlist::VarList;
 use window::{Window, WindowEvent};
 
@@ -32,7 +33,7 @@ enum DbgAction<'s> {
     AfterStmt(&'s Statement),
     Sleep,
     Finished(/*should wait*/ bool),
-    Split(usize, Vec<Value>),
+    Split(usize, Vec<Value>, Box<Turtle>),
 }
 
 struct TurtleWaker;

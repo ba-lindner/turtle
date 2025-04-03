@@ -166,7 +166,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
             }
             Statement::Split(id, args) => {
                 let args = self.dbg_args(args).await;
-                let _ = self.action.send((DbgAction::Split(*id, args), self.curr_pos));
+                let _ = self.action.send((DbgAction::Split(*id, args, Box::new(self.turtle.lock().split())), self.curr_pos));
             }
             Statement::Wait => self.ret(DbgAction::Sleep, true).await,
             Statement::IfBranch(cond, stmts) => {

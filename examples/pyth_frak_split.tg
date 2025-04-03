@@ -35,7 +35,7 @@ endpath
 
 begin
 
-  store 3000 in @delay
+  store 200 in @delay
 
   store 5 in side_len
   if (@1 > 0) then 

@@ -29,7 +29,7 @@ pub struct DebugRunner<'p, W> {
     last_pos: FilePos,
     debug: bool,
     ctx: Rc<GlobalCtx<W>>,
-    split_queue: Vec<(usize, Vec<Value>)>,
+    split_queue: Vec<(usize, Vec<Value>, Box<Turtle>)>,
     fut: Pin<Box<dyn Future<Output = ()> + 'p>>,
 }
 
@@ -77,12 +77,12 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         }
     }
 
-    fn split(&self, path: usize, args: Vec<Value>) -> DebugRunner<'p, W> {
+    fn split(&self, path: usize, args: Vec<Value>, turtle: Turtle) -> DebugRunner<'p, W> {
         Self::construct(
             self.prog,
             self.ctx.clone(),
             self.debug,
-            self.turtle.lock().split(),
+            turtle,
             |task| Box::pin(task.execute_path(path, args)),
         )
     }
@@ -90,7 +90,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
     pub fn poll_splits(&mut self) -> Vec<DebugRunner<'p, W>> {
         std::mem::take(&mut self.split_queue)
             .into_iter()
-            .map(|(path, args)| self.split(path, args))
+            .map(|(path, args, turtle)| self.split(path, args, *turtle))
             .collect()
     }
 
@@ -238,7 +238,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
                     act = Some(DbgAction::AfterStmt(stmt).attach_pos(pos));
                     self.last_pos = pos;
                 }
-                Ok((DbgAction::Split(path, args), _)) => self.split_queue.push((path, args)),
+                Ok((DbgAction::Split(path, args, ttl), _)) => self.split_queue.push((path, args, ttl)),
                 Ok((a, pos)) => act = Some(a.attach_pos(pos)),
                 Err(TryRecvError::Disconnected) => return Err(TryRecvError::Disconnected),
                 Err(TryRecvError::Empty) => return act.ok_or(TryRecvError::Empty),

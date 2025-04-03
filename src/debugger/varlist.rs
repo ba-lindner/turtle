@@ -5,7 +5,7 @@ use crate::{
     SymbolTable,
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VarList {
     vars: HashMap<usize, Value>,
 }

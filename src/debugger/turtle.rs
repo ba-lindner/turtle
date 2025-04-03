@@ -16,7 +16,7 @@ pub enum FuncType {
     Event(EventKind),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Turtle {
     pos: TCoord,
     pub dir: f64,
