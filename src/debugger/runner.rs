@@ -269,7 +269,31 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
     }
 
     pub fn step_single(&mut self) -> StmtKind {
-        todo!()
+        // enum StepResult { Exec(StmtKind), Finished, Sync }
+        if self.finished {
+            return StmtKind::Any;
+        }
+        let mut res = StmtKind::Control;
+        let waker = TurtleWaker::get_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        while self.fut.as_mut().poll(&mut cx).is_pending() {
+            match *self.get_action().expect("future should only return if some action was sent") {
+                DbgAction::AfterStmt(stmt) => {
+                    if self.narrate {
+                        stmt.narrate(&self.prog.symbols);
+                    }
+                    res = res.max(stmt.kind());
+                }
+                DbgAction::Sleep => return StmtKind::Draw,
+                DbgAction::Finished(wait) => {
+                    *self.ctx.wait_end.lock() = wait;
+                    self.finished = true;
+                }
+                DbgAction::BeforeStmt => return res,
+                _ => {}
+            }
+        }
+        res
     }
 
     // fn handle_breakpoints(&mut self, action: Pos<DbgAction<'p>>) {

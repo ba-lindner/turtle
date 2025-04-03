@@ -48,6 +48,7 @@ pub enum Statement {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StmtKind {
+    Control,
     Any,
     Turtle,
     Draw,
@@ -56,15 +57,21 @@ pub enum StmtKind {
 impl Statement {
     pub fn kind(&self) -> StmtKind {
         match self {
-            Self::MoveDist { draw: true, .. } | Self::MoveHome(true) | Self::MoveMark(true) => {
-                StmtKind::Draw
-            }
             Self::Clear
-            | Self::Direction(_)
+            | Self::MoveDist { draw: true, .. }
+            | Self::MoveHome(true)
+            | Self::MoveMark(true) => StmtKind::Draw,
+            Self::Direction(_)
             | Self::MoveDist { .. }
             | Self::MoveHome(_)
             | Self::MoveMark(_)
             | Self::Turn { .. } => StmtKind::Turtle,
+            Self::IfBranch(_, _)
+            | Self::IfElseBranch(_, _, _)
+            | Self::DoLoop(_, _)
+            | Self::CounterLoop { .. }
+            | Self::WhileLoop(_, _)
+            | Self::RepeatLoop(_, _) => StmtKind::Control,
             _ => StmtKind::Any,
         }
     }
