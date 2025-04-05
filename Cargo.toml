@@ -1,6 +1,6 @@
 [package]
 name = "turtle"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["Bernhard Lindner lindbe.pi22@stud.gera.dhge.de"]
 edition = "2021"
 description = "Compiler, Interpreter and Debugger for the turtle language"

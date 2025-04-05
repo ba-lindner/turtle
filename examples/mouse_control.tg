@@ -1,9 +1,6 @@
 event mouse(x: num, y: num, btn: bool)
-  if btn then
-    store x in @target_x
-    store y in @target_y
-    print 'target is ' + string(x) + ',' + string(y)
-  endif
+  store x in @target_x
+  store y in @target_y
 endevent
 
 begin

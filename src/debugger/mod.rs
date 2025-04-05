@@ -1,15 +1,26 @@
 use std::{
-    rc::Rc, sync::Arc, task::{Wake, Waker}, thread, time::Duration
+    rc::Rc,
+    sync::Arc,
+    task::{Wake, Waker},
+    thread,
+    time::Duration,
 };
 
+use commands::DbgCommand;
 use parking_lot::Mutex;
 use turtle::Turtle;
 use varlist::VarList;
 use window::{Window, WindowEvent};
 
-use crate::{features::{Feature, FeatureState}, pos::FilePos, tokens::{EventKind, PredefVar, Statement, StmtKind, Value}, TProgram};
-use runner::DebugRunner;
+use crate::{
+    features::{Feature, FeatureState},
+    pos::FilePos,
+    tokens::{EventKind, PredefVar, Statement, StmtKind, Value},
+    TProgram,
+};
+use runner::{DebugRunner, StepResult};
 
+pub mod commands;
 mod runner;
 mod task;
 mod turtle;
@@ -22,7 +33,6 @@ pub mod window;
 type TCoord = (f64, f64);
 /// a color in the turtle color space
 type TColor = (f64, f64, f64);
-
 
 const START_COLOR: TColor = (100.0, 100.0, 0.0);
 
@@ -48,27 +58,30 @@ impl Wake for TurtleWaker {
     fn wake(self: std::sync::Arc<Self>) {}
 }
 
-enum ProgEnd {
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ProgEnd {
     WindowExited,
     AllTurtlesFinished,
 }
 
 struct GlobalCtx<W> {
     vars: Mutex<VarList>,
-    args: Mutex<[Value; 9]>,
+    args: [Value; 9],
     delay: Mutex<f64>,
     wait_end: Mutex<bool>,
     window: Mutex<W>,
+    debug: bool,
+    breakpoints: Mutex<Vec<FilePos>>,
 }
 
 impl<W: Window> GlobalCtx<W> {
     pub fn get_var(&self, var: PredefVar) -> Value {
         match var {
-            PredefVar::Arg(i) => self.args.lock()[i].clone(),
+            PredefVar::Arg(i) => self.args[i - 1].clone(),
             PredefVar::MaxX => Value::Number(self.window.lock().get_max_x()),
             PredefVar::MaxY => Value::Number(self.window.lock().get_max_y()),
             PredefVar::Delay => Value::Number(*self.delay.lock()),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -77,20 +90,25 @@ impl<W: Window> GlobalCtx<W> {
             PredefVar::MaxX => self.window.lock().set_max_x(val.num()),
             PredefVar::MaxY => self.window.lock().set_max_y(val.num()),
             PredefVar::Delay => *self.delay.lock() = val.num(),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
 
 pub struct DebugRun<'p, W> {
     prog: &'p TProgram,
-    debug: bool,
     ctx: Rc<GlobalCtx<W>>,
-    turtles: Vec<DebugRunner<'p, W>>
+    turtles: Vec<DebugRunner<'p, W>>,
 }
 
 impl<'p, W: Window + 'p> DebugRun<'p, W> {
-    pub fn new(prog: &'p TProgram, args: &[String], window: W, debug: bool, breakpoints: Vec<FilePos>) -> Self {
+    pub fn new(
+        prog: &'p TProgram,
+        args: &[String],
+        window: W,
+        debug: bool,
+        breakpoints: Vec<FilePos>,
+    ) -> Self {
         let args = std::array::from_fn(|idx| {
             let arg = args.get(idx).map(String::as_str).unwrap_or_default();
             if prog.features[Feature::Types] == FeatureState::Enabled {
@@ -101,25 +119,25 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
         });
         let ctx = Rc::new(GlobalCtx {
             vars: Mutex::new(VarList::new()),
-            args: Mutex::new(args),
+            args,
             delay: Mutex::new(1.0),
             wait_end: Mutex::new(false),
             window: Mutex::new(window),
+            debug,
+            breakpoints: Mutex::new(breakpoints),
         });
-        let runner = DebugRunner::new(prog, ctx.clone(), debug);
+        let runner = DebugRunner::new(prog, ctx.clone());
         Self {
             prog,
-            debug,
             ctx,
-            turtles: vec![runner]
+            turtles: vec![runner],
         }
     }
 
     pub fn run(&mut self) {
         while !self.turtles.is_empty() {
             self.turtles[0].run_sleep();
-            self.sync_turtles();
-            match self.after_draw() {
+            match self.sync_turtles() {
                 Ok(()) => {}
                 Err(ProgEnd::AllTurtlesFinished) => break,
                 Err(ProgEnd::WindowExited) => return,
@@ -129,13 +147,17 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
     }
 
     /// synchronize turtles
-    /// 
+    ///
     /// run after main turtle has drawn a line
-    /// 
+    ///
     /// this will execute all *other* turtles until the next line
     /// draw and then remove finished turtles
-    fn sync_turtles(&mut self) {
-        fn run_part<'p, W: Window + 'p>(turtles: &mut [DebugRunner<'p, W>]) -> Vec<DebugRunner<'p, W>> {
+    ///
+    /// afterwards, @delay is applied and events are handled
+    fn sync_turtles(&mut self) -> Result<(), ProgEnd> {
+        fn run_part<'p, W: Window + 'p>(
+            turtles: &mut [DebugRunner<'p, W>],
+        ) -> Vec<DebugRunner<'p, W>> {
             let mut res = Vec::new();
             for ttl in turtles {
                 ttl.run_sleep();
@@ -151,169 +173,146 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
             splits = new_splits;
         }
         self.turtles.retain(|ttl| !ttl.finished);
-    }
-
-    fn after_draw(&mut self) -> Result<(), ProgEnd> {
-        thread::sleep(Duration::from_millis(*self.ctx.delay.lock() as u64));
         if self.turtles.is_empty() {
             return Err(ProgEnd::AllTurtlesFinished);
         }
+        thread::sleep(Duration::from_millis(*self.ctx.delay.lock() as u64));
         let eventing = self.prog.features[Feature::Events] == FeatureState::Enabled;
         for evt in self.ctx.window.lock().events() {
             match evt {
                 WindowEvent::WindowExited => return Err(ProgEnd::WindowExited),
-                WindowEvent::KeyPressed(c) => if eventing && self.prog.key_event.is_some() {
-                    self.turtles.push(DebugRunner::for_event(
-                        self.prog,
-                        self.ctx.clone(),
-                        self.debug,
-                        EventKind::Key,
-                        vec![Value::String(c.to_string())],
-                    ));
+                WindowEvent::KeyPressed(c) => {
+                    if eventing && self.prog.key_event.is_some() {
+                        self.turtles.push(DebugRunner::for_event(
+                            self.prog,
+                            self.ctx.clone(),
+                            EventKind::Key,
+                            vec![Value::String(c.to_string())],
+                        ));
+                    }
                 }
-                WindowEvent::MouseClicked(coord, btn) => if eventing && self.prog.mouse_event.is_some() {
-                    self.turtles.push(DebugRunner::for_event(
-                        self.prog,
-                        self.ctx.clone(),
-                        self.debug,
-                        EventKind::Mouse,
-                        vec![
-                            Value::Number(coord.0),
-                            Value::Number(coord.1),
-                            Value::Boolean(btn),
-                        ],
-                    ));
+                WindowEvent::MouseClicked(coord, btn) => {
+                    if eventing && self.prog.mouse_event.is_some() {
+                        self.turtles.push(DebugRunner::for_event(
+                            self.prog,
+                            self.ctx.clone(),
+                            EventKind::Mouse,
+                            vec![
+                                Value::Number(coord.0),
+                                Value::Number(coord.1),
+                                Value::Boolean(btn),
+                            ],
+                        ));
+                    }
                 }
             }
         }
-        // check window events
-        // start event turtles
-        // set 'main thread' values (narrator, breakpoints)
         Ok(())
     }
 
     pub fn run_debug(&mut self) {
         println!("turtle debugger v{}", env!("CARGO_PKG_VERSION"));
         println!("enter 'help' to view available commands");
-
-        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-        enum DbgCommand {
-            StepSingle(usize),
-            StepOver(usize),
-            StepTurtle,
-            StepDraw,
-            Run,
-            ToggleNarrate,
-            Vardump,
-            CurrPos,
-        }
-
-        fn get_command() -> Option<DbgCommand> {
-            const DEBUG_HELP: &str = "available commands:
-  run                 - run / stop debugger
-  step [count]        - execute single statement
-  step over [count]   - step over path / calc call
-  step turtle         - skip until next turtle action
-  step draw           - skip until next drawn line
-  narrator            - toggle narrator
-  variables           - dump variables
-  position            - print current position
-  help                - show this help";
-
-            loop {
-                let line = std::io::stdin().lines().next()?.ok()?;
-                if line.is_empty() {
-                    return None;
-                }
-                let mut words = line.split_whitespace();
-                let cmd = words.next().unwrap();
-                if "step".starts_with(cmd) {
-                    match words.next() {
-                        Some(over) if "over".starts_with(over) => {
-                            match words.next().map(str::parse) {
-                                Some(Ok(count)) => return Some(DbgCommand::StepOver(count)),
-                                Some(Err(why)) => eprintln!("not a number: {why}"),
-                                None => return Some(DbgCommand::StepOver(1)),
-                            }
-                        }
-                        Some(turtle) if "turtle".starts_with(turtle) => return Some(DbgCommand::StepTurtle),
-                        Some(draw) if "draw".starts_with(draw) => return Some(DbgCommand::StepDraw),
-                        Some(count) => {
-                            match count.parse() {
-                                Ok(count) => return Some(DbgCommand::StepSingle(count)),
-                                Err(why) => eprintln!("not a number: {why}"),
-                            }
-                        }
-                        None => return Some(DbgCommand::StepSingle(1)),
-                    }
-                } else if "run".starts_with(cmd) {
-                    return Some(DbgCommand::Run);
-                } else if "narrator".starts_with(cmd) {
-                    return Some(DbgCommand::ToggleNarrate);
-                } else if "variables".starts_with(cmd) {
-                    return Some(DbgCommand::Vardump);
-                } else if "position".starts_with(cmd) {
-                    return Some(DbgCommand::CurrPos);
-                } else if "help".starts_with(cmd) {
-                    println!("{DEBUG_HELP}");
-                } else if "quit".starts_with(cmd) {
-                    return None;
-                } else {
-                    eprintln!("unknown command {cmd}");
-                }
-            }
-        }
-
-        let mut exec_cmd = || {
-            let Some(cmd) = get_command() else {
-                return Err(ProgEnd::WindowExited);
+        loop {
+            let Some(cmd) = commands::get_command() else {
+                return;
             };
-            match cmd {
-                DbgCommand::StepSingle(count) => for _ in 0..count { self.step_single()?; }
-                DbgCommand::StepOver(count) => for _ in 0..count { self.step_over()?; }
-                DbgCommand::StepTurtle => self.step_kind(StmtKind::Turtle)?,
-                DbgCommand::StepDraw => self.step_kind(StmtKind::Draw)?,
-                DbgCommand::Run => self.run_breakpoints()?,
-                DbgCommand::ToggleNarrate => self.turtles[0].narrate = !self.turtles[0].narrate,
-                DbgCommand::Vardump => self.turtles[0].dump_vars(),
-                DbgCommand::CurrPos => self.turtles[0].print_pos(),
+            match self.exec_cmd(cmd) {
+                Ok(()) => {}
+                Err(ProgEnd::AllTurtlesFinished) => {
+                    self.finished();
+                    return;
+                }
+                Err(ProgEnd::WindowExited) => return,
             }
-            Ok(())
-        };
-        while exec_cmd().is_ok() {}
+        }
     }
 
-    fn step_single(&mut self) -> Result<StmtKind, ProgEnd> {
-        let kind = self.turtles[0].step_single();
-        if kind == StmtKind::Draw {
-            self.sync_turtles();
-            self.after_draw()?;
+    pub fn exec_cmd(&mut self, cmd: DbgCommand) -> Result<(), ProgEnd> {
+        match cmd {
+            DbgCommand::StepSingle(count) => {
+                for _ in 0..count {
+                    self.step_single()?;
+                }
+            }
+            DbgCommand::StepOver(count) => {
+                for _ in 0..count {
+                    self.step_over()?;
+                }
+            }
+            DbgCommand::StepTurtle => self.step_kind(StmtKind::Turtle)?,
+            DbgCommand::StepDraw => self.step_kind(StmtKind::Draw)?,
+            DbgCommand::StepSync => self.step_sync()?,
+            DbgCommand::Run => self.run_breakpoints()?,
+            DbgCommand::ToggleNarrate => self.turtles[0].narrate = !self.turtles[0].narrate,
+            DbgCommand::Vardump => self.turtles[0].dump_vars(),
+            DbgCommand::CurrPos => self.turtles[0].print_pos(),
         }
-        Ok(kind)
+        Ok(())
+    }
+
+    fn step_single(&mut self) -> Result<Option<StmtKind>, ProgEnd> {
+        match self.turtles[0].step_single() {
+            StepResult::Exec(kind) => Ok(Some(kind)),
+            StepResult::Sync => {
+                self.sync_turtles()?;
+                // sync only _during_ walk / clear / wait
+                // so next call to DebugRunner::step_single will return StepResult::Exec
+                // thus this is not really recursion
+                self.step_single()
+            }
+            StepResult::Finished => {
+                self.sync_turtles()?;
+                Ok(None)
+            }
+            StepResult::Breakpoint => Ok(None),
+        }
     }
 
     fn step_over(&mut self) -> Result<(), ProgEnd> {
         let stack_size = self.turtles[0].stack_size();
-        self.step_single()?;
-        while self.turtles[0].stack_size() > stack_size {
-            self.step_single()?;
-        }
+        while self.step_single()?.is_some() && self.turtles[0].stack_size() > stack_size {}
         Ok(())
     }
 
     fn step_kind(&mut self, kind: StmtKind) -> Result<(), ProgEnd> {
-        while self.step_single()? < kind {}
+        while self.step_single()?.is_some_and(|k| k < kind) {}
+        Ok(())
+    }
+
+    fn step_sync(&mut self) -> Result<(), ProgEnd> {
+        if self.turtles[0].run_breakpoints() != StepResult::Breakpoint {
+            self.sync_turtles()?;
+        }
         Ok(())
     }
 
     fn run_breakpoints(&mut self) -> Result<(), ProgEnd> {
-        todo!()
+        loop {
+            match self.turtles[0].run_breakpoints() {
+                StepResult::Exec(_) => unreachable!(),
+                StepResult::Sync => {
+                    self.sync_turtles()?;
+                }
+                StepResult::Breakpoint => return Ok(()),
+                StepResult::Finished => {
+                    self.sync_turtles()?;
+                    return Ok(());
+                }
+            }
+        }
     }
 
     fn finished(&self) {
         if *self.ctx.wait_end.lock() {
             println!("halt and catch fire");
-            while !self.ctx.window.lock().events().contains(&WindowEvent::WindowExited){
+            while !self
+                .ctx
+                .window
+                .lock()
+                .events()
+                .contains(&WindowEvent::WindowExited)
+            {
                 thread::sleep(Duration::from_millis(200));
             }
         }

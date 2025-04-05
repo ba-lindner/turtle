@@ -1,6 +1,10 @@
 use clap::{Args, Parser, Subcommand};
 use std::process::Command;
-use turtle::{features::{Feature, FeatureConf, FeatureState}, pos::FilePos, TProgram};
+use turtle::{
+    features::{Feature, FeatureConf, FeatureState},
+    pos::FilePos,
+    TProgram,
+};
 
 #[derive(Parser)]
 #[command(version)]
@@ -100,7 +104,11 @@ impl Source {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        TCommand::Run { source, optimized, args } => {
+        TCommand::Run {
+            source,
+            optimized,
+            args,
+        } => {
             let mut prog = source.get_prog();
             if optimized {
                 prog.optimize();
@@ -230,47 +238,5 @@ mod test {
     #[test]
     fn cli() {
         Cli::command().debug_assert();
-    }
-}
-
-#[allow(unused)]
-mod presi {
-    use turtle::tokens::BiOperator;
-
-    enum Expr {
-        Const(f64),
-        BiOperation(Box<Expr>, BiOperator, Box<Expr>),
-        Bracket(Box<Expr>),
-        Absolute(Box<Expr>),
-    }
-
-    struct Interpreter;
-
-    impl Interpreter {
-fn eval_expr(&mut self, expr: &Expr) -> f64 {
-    match expr {
-        Expr::Const(val) => *val,
-        Expr::BiOperation(lhs, op, rhs) => {
-            let lhs = self.eval_expr(lhs);
-            let rhs = self.eval_expr(rhs);
-            op.calc(lhs, rhs)
-        }
-        Expr::Bracket(expr) => self.eval_expr(expr),
-        Expr::Absolute(expr) => self.eval_expr(expr).abs(),
-    }
-}
-
-async fn debug_expr(&mut self, expr: &Expr) -> f64 {
-    Box::pin(async { match expr {
-        Expr::Const(val) => *val,
-        Expr::BiOperation(lhs, op, rhs) => {
-            let lhs = self.debug_expr(lhs).await;
-            let rhs = self.debug_expr(rhs).await;
-            op.calc(lhs, rhs)
-        }
-        Expr::Bracket(expr) => self.debug_expr(expr).await,
-        Expr::Absolute(expr) => self.debug_expr(expr).await.abs(),
-    }}).await
-}
     }
 }

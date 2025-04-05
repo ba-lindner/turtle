@@ -1,5 +1,12 @@
 use crate::{
-    debugger::{window::SdlWindow, DebugRun}, features::FeatureConf, pos::FilePos, tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType}, Identified, SymbolTable, TurtleError
+    debugger::{
+        window::{SdlWindow, Window},
+        DebugRun,
+    },
+    features::FeatureConf,
+    pos::FilePos,
+    tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType},
+    Identified, SymbolTable, TurtleError,
 };
 
 use lexer::Lexer;
@@ -7,9 +14,9 @@ use parser::Parser;
 pub use semcheck::TypeError;
 
 pub mod lexer;
+mod optimization;
 pub mod parser;
 mod semcheck;
-mod optimization;
 
 #[derive(Default)]
 struct RawProg {
@@ -37,7 +44,11 @@ impl RawProg {
                     EventKind::Key => &mut self.key_event,
                 };
                 if let Some(evt) = curr {
-                    return Err(TurtleError::MultipleEventHandler(kind, evt.body.begin, func.body.begin));
+                    return Err(TurtleError::MultipleEventHandler(
+                        kind,
+                        evt.body.begin,
+                        func.body.begin,
+                    ));
                 }
                 *curr = Some(func);
             }
@@ -76,7 +87,11 @@ pub struct TProgram {
 }
 
 impl TProgram {
-    pub fn parse(code: String, print_symbols: bool, mut features: FeatureConf) -> Result<Self, TurtleError> {
+    pub fn parse(
+        code: String,
+        print_symbols: bool,
+        mut features: FeatureConf,
+    ) -> Result<Self, TurtleError> {
         let mut symbols = SymbolTable::new();
         let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
         if print_symbols {
@@ -95,7 +110,11 @@ impl TProgram {
         Ok(this)
     }
 
-    pub fn from_file(file: &str, print_symbols: bool, features: FeatureConf) -> Result<Self, TurtleError> {
+    pub fn from_file(
+        file: &str,
+        print_symbols: bool,
+        features: FeatureConf,
+    ) -> Result<Self, TurtleError> {
         let code = std::fs::read_to_string(file)?;
         let mut this = Self::parse(code, print_symbols, features)?;
         this.name = Some(file.to_string());
@@ -155,11 +174,19 @@ impl TProgram {
     }
 
     pub fn interpret(&self, args: &[String]) {
-        DebugRun::new(self, args, SdlWindow::new(&self.title("Interpreter")), false, Vec::new()).run();
+        self.interpret_with(args, SdlWindow::new(&self.title("Interpreter")));
+    }
+
+    pub fn interpret_with(&self, args: &[String], window: impl Window) {
+        DebugRun::new(self, args, window, false, Vec::new()).run();
     }
 
     pub fn debug(&self, args: &[String], breakpoints: Vec<FilePos>) {
-        DebugRun::new(self, args, SdlWindow::new(&self.title("Debugger")), true, breakpoints).run_debug();
+        self.debug_with(args, breakpoints, SdlWindow::new(&self.title("Debugger")));
+    }
+
+    pub fn debug_with(&self, args: &[String], breakpoints: Vec<FilePos>, window: impl Window) {
+        DebugRun::new(self, args, window, true, breakpoints).run_debug();
     }
 }
 

@@ -3,7 +3,11 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 use parking_lot::Mutex;
 
 use crate::{
-    debugger::{turtle::FuncType, varlist::VarList}, pos::FilePos, prog::PathDef, tokens::{Block, Expr, ExprKind, Statement, Value}, TProgram
+    debugger::{turtle::FuncType, varlist::VarList},
+    pos::FilePos,
+    prog::PathDef,
+    tokens::{Block, Expr, ExprKind, Statement, Value},
+    TProgram,
 };
 
 use super::{turtle::Turtle, window::Window, DbgAction, EventKind, GlobalCtx};
@@ -31,7 +35,6 @@ pub struct DebugTask<'p, W: Window> {
     turtle: Rc<Mutex<Turtle>>,
     ctx: Rc<GlobalCtx<W>>,
     action: Sender<(DbgAction<'p>, FilePos)>,
-    debug: bool,
     curr_pos: FilePos,
 }
 
@@ -41,14 +44,12 @@ impl<'p, W: Window> DebugTask<'p, W> {
         turtle: Rc<Mutex<Turtle>>,
         ctx: Rc<GlobalCtx<W>>,
         action: Sender<(DbgAction<'p>, FilePos)>,
-        debug: bool,
     ) -> Self {
         Self {
             prog,
             turtle,
             ctx,
             action,
-            debug,
             curr_pos: FilePos::default(),
         }
     }
@@ -74,29 +75,30 @@ impl<'p, W: Window> DebugTask<'p, W> {
 
     async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
         assert_eq!(path.args.len(), args.len());
-        let mut ttl = self.turtle.lock();
-        let (func, vars) = ttl.stack.last_mut().unwrap();
-        for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
-            vars.set_var(arg, val);
+        {
+            let mut ttl = self.turtle.lock();
+            let (func, vars) = ttl.stack.last_mut().unwrap();
+            for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
+                vars.set_var(arg, val);
+            }
+            *func = ft;
         }
-        *func = ft;
-        drop(ttl);
         self.dbg_block(&path.body).await;
     }
 
     async fn dbg_block(&mut self, block: &'p Block) {
         let fut = async {
-            if self.debug {
+            if self.ctx.debug {
                 let _ = self.action.send((DbgAction::BlockEntered, block.begin));
             }
             for stmt in &block.statements {
                 self.curr_pos = stmt.get_pos();
                 // before
-                self.ret(DbgAction::BeforeStmt, self.debug).await;
+                self.ret(DbgAction::BeforeStmt, self.ctx.debug).await;
                 // execute
                 self.dbg_stmt(stmt).await;
                 // after
-                self.ret(DbgAction::AfterStmt(stmt), self.debug).await;
+                self.ret(DbgAction::AfterStmt(stmt), self.ctx.debug).await;
             }
         };
         Box::pin(fut).await
@@ -106,7 +108,9 @@ impl<'p, W: Window> DebugTask<'p, W> {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
-                self.turtle.lock().move_dist(&self.ctx, dist.num(), *back, *draw);
+                self.turtle
+                    .lock()
+                    .move_dist(&self.ctx, dist.num(), *back, *draw);
                 self.ret(DbgAction::Sleep, *draw).await;
             }
             Statement::MoveHome(draw) => {
@@ -115,8 +119,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
             }
             Statement::Turn { left, by } => {
                 let angle = self.dbg_expr(by).await.num();
-                let new_dir =
-                    self.turtle.lock().dir + if *left { angle } else { -angle };
+                let new_dir = self.turtle.lock().dir + if *left { angle } else { -angle };
                 self.turtle.lock().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
@@ -154,7 +157,9 @@ impl<'p, W: Window> DebugTask<'p, W> {
             Statement::Calc { var, val, op } => {
                 let lhs = self.turtle.lock().get_var(&self.ctx, var);
                 let rhs = self.dbg_expr(val).await;
-                self.turtle.lock().set_var(&self.ctx, var, op.eval(&lhs, &rhs));
+                self.turtle
+                    .lock()
+                    .set_var(&self.ctx, var, op.eval(&lhs, &rhs));
             }
             Statement::Mark => self.turtle.lock().new_mark(),
             Statement::MoveMark(draw) => {
@@ -166,7 +171,10 @@ impl<'p, W: Window> DebugTask<'p, W> {
             }
             Statement::Split(id, args) => {
                 let args = self.dbg_args(args).await;
-                let _ = self.action.send((DbgAction::Split(*id, args, Box::new(self.turtle.lock().split())), self.curr_pos));
+                let _ = self.action.send((
+                    DbgAction::Split(*id, args, Box::new(self.turtle.lock().split())),
+                    self.curr_pos,
+                ));
             }
             Statement::Wait => self.ret(DbgAction::Sleep, true).await,
             Statement::IfBranch(cond, stmts) => {
@@ -202,11 +210,15 @@ impl<'p, W: Window> DebugTask<'p, W> {
                         Some(expr) => self.dbg_expr(expr).await.num(),
                         None => 1.0,
                     };
-                self.turtle.lock().set_var(&self.ctx, counter, Value::Number(init));
+                self.turtle
+                    .lock()
+                    .set_var(&self.ctx, counter, Value::Number(init));
                 while *up != (self.turtle.lock().get_var(&self.ctx, counter).num() >= end) {
                     self.dbg_block(body).await;
                     let next_val = self.turtle.lock().get_var(&self.ctx, counter).num() + step;
-                    self.turtle.lock().set_var(&self.ctx, counter, Value::Number(next_val));
+                    self.turtle
+                        .lock()
+                        .set_var(&self.ctx, counter, Value::Number(next_val));
                 }
             }
             Statement::WhileLoop(cond, stmts) => {

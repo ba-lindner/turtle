@@ -201,6 +201,7 @@ impl<'s, 'f> Parser<'s, 'f> {
                 self.expect_symbol(',')?;
             }
             let arg = self.match_identifier()?;
+            self.set_ident_type(arg, Identified::LocalVar)?;
             let ty = self.parse_type_hint()?;
             res.push((arg, ty));
         }

@@ -91,7 +91,7 @@ impl PredefVar {
 
     pub fn val_type(&self, features: &FeatureConf) -> ValType {
         if features[Feature::Types] == FeatureState::Disabled {
-            return ValType::Number
+            return ValType::Number;
         }
         match self {
             PredefVar::Dir

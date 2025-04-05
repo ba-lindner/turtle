@@ -1,4 +1,7 @@
-use crate::{pos::{Pos, Positionable}, tokens::{Block, Expr, ExprKind, Statement, Value}};
+use crate::{
+    pos::{Pos, Positionable},
+    tokens::{Block, Expr, ExprKind, Statement, Value},
+};
 
 impl Expr {
     fn is_const(&self) -> Option<Value> {
@@ -19,8 +22,7 @@ impl Expr {
 impl ExprKind {
     fn const_fold(self) -> ExprKind {
         match self {
-            ExprKind::Const(_) |
-            ExprKind::Variable(_) => self,
+            ExprKind::Const(_) | ExprKind::Variable(_) => self,
             ExprKind::BiOperation(mut lhs, op, mut rhs) => {
                 lhs.const_fold();
                 rhs.const_fold();
@@ -49,7 +51,7 @@ impl ExprKind {
             ExprKind::Bracket(mut expr) => {
                 expr.const_fold();
                 expr.kind
-            },
+            }
             ExprKind::Convert(mut expr, to) => {
                 expr.const_fold();
                 if let Some(val) = expr.is_const() {
@@ -83,32 +85,31 @@ impl Pos<Statement> {
                     s.const_fold();
                 }
             }
-            Statement::Direction(expr) |
-            Statement::Store(expr, _) |
-            Statement::Print(expr) |
-            Statement::IfBranch(expr, _) |
-            Statement::IfElseBranch(expr, _, _) |
-            Statement::DoLoop(expr, _) |
-            Statement::WhileLoop(expr, _) |
-            Statement::RepeatLoop(expr, _) => expr.const_fold(),
+            Statement::Direction(expr)
+            | Statement::Store(expr, _)
+            | Statement::Print(expr)
+            | Statement::IfBranch(expr, _)
+            | Statement::IfElseBranch(expr, _, _)
+            | Statement::DoLoop(expr, _)
+            | Statement::WhileLoop(expr, _)
+            | Statement::RepeatLoop(expr, _) => expr.const_fold(),
             Statement::Color(r, g, b) => {
                 r.const_fold();
                 g.const_fold();
                 b.const_fold();
             }
-            Statement::PathCall(_, exprs) |
-            Statement::Split(_, exprs) => {
+            Statement::PathCall(_, exprs) | Statement::Split(_, exprs) => {
                 for e in exprs {
                     e.const_fold();
                 }
             }
-            Statement::MoveHome(_) |
-            Statement::Clear |
-            Statement::Stop |
-            Statement::Finish |
-            Statement::Mark |
-            Statement::MoveMark(_) |
-            Statement::Wait => {}
+            Statement::MoveHome(_)
+            | Statement::Clear
+            | Statement::Stop
+            | Statement::Finish
+            | Statement::Mark
+            | Statement::MoveMark(_)
+            | Statement::Wait => {}
         };
 
         let to_bool = |v: Value| v.bool();
@@ -116,34 +117,49 @@ impl Pos<Statement> {
 
         let pos = self.get_pos();
         match self.into_inner() {
-            Statement::IfBranch(expr, block) => {
-                match expr.is_const().map(to_bool) {
-                    Some(true) => block.statements,
-                    Some(false) => Vec::new(),
-                    None => vec![Statement::IfBranch(expr, block).attach_pos(pos)],
-                }
-            }
+            Statement::IfBranch(expr, block) => match expr.is_const().map(to_bool) {
+                Some(true) => block.statements,
+                Some(false) => Vec::new(),
+                None => vec![Statement::IfBranch(expr, block).attach_pos(pos)],
+            },
             Statement::IfElseBranch(expr, if_block, else_block) => {
                 match expr.is_const().map(to_bool) {
                     Some(true) => if_block.statements,
                     Some(false) => else_block.statements,
-                    None => vec![Statement::IfElseBranch(expr, if_block, else_block).attach_pos(pos)],
+                    None => {
+                        vec![Statement::IfElseBranch(expr, if_block, else_block).attach_pos(pos)]
+                    }
                 }
             }
-            Statement::DoLoop(expr, block) => {
-                match expr.is_const().map(to_num) {
-                    Some(..0.0) => Vec::new(),
-                    Some(1.0..2.0) => block.statements,
-                    _ => vec![Statement::DoLoop(expr, block).attach_pos(pos)],
-                }
-            }
-            Statement::CounterLoop { counter, from, up, to, step, body } => {
-                if let (Some(from), Some(to)) = (from.is_const().map(to_num), to.is_const().map(to_num)) {
+            Statement::DoLoop(expr, block) => match expr.is_const().map(to_num) {
+                Some(..0.0) => Vec::new(),
+                Some(1.0..2.0) => block.statements,
+                _ => vec![Statement::DoLoop(expr, block).attach_pos(pos)],
+            },
+            Statement::CounterLoop {
+                counter,
+                from,
+                up,
+                to,
+                step,
+                body,
+            } => {
+                if let (Some(from), Some(to)) =
+                    (from.is_const().map(to_num), to.is_const().map(to_num))
+                {
                     if from != to && (from > to) == up {
                         return Vec::new();
                     }
                 }
-                vec![Statement::CounterLoop { counter, from, up, to, step, body }.attach_pos(pos)]
+                vec![Statement::CounterLoop {
+                    counter,
+                    from,
+                    up,
+                    to,
+                    step,
+                    body,
+                }
+                .attach_pos(pos)]
             }
             Statement::WhileLoop(expr, block) => {
                 if expr.is_const().is_some_and(|v| !v.bool()) {

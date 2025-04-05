@@ -92,13 +92,22 @@ impl TProgram {
     }
 
     fn check_event_args(&self) -> Result<(), TurtleError> {
-        fn check_args(kind: EventKind, is: &[(usize, ValType)], should: &[ValType]) -> Result<(), TurtleError> {
+        fn check_args(
+            kind: EventKind,
+            is: &[(usize, ValType)],
+            should: &[ValType],
+        ) -> Result<(), TurtleError> {
             if is.len() != should.len() {
-                return Err(TurtleError::EventArgsLength(kind, is.len(), should.len()))
+                return Err(TurtleError::EventArgsLength(kind, is.len(), should.len()));
             }
             for idx in 0..is.len() {
                 if is[idx].1 != should[idx] {
-                    return Err(TurtleError::EventArgsType(kind, idx, is[idx].1, should[idx]));
+                    return Err(TurtleError::EventArgsType(
+                        kind,
+                        idx,
+                        is[idx].1,
+                        should[idx],
+                    ));
                 }
             }
             Ok(())
@@ -107,7 +116,11 @@ impl TProgram {
             check_args(EventKind::Key, &evt.args, &[ValType::String])?;
         }
         if let Some(evt) = &self.mouse_event {
-            check_args(EventKind::Mouse, &evt.args, &[ValType::Number, ValType::Number, ValType::Boolean])?;
+            check_args(
+                EventKind::Mouse,
+                &evt.args,
+                &[ValType::Number, ValType::Number, ValType::Boolean],
+            )?;
         }
         Ok(())
     }
@@ -237,8 +250,7 @@ impl Pos<Statement> {
             | Statement::Mark
             | Statement::Wait
             | Statement::MoveMark(_) => Ok(Vars::new()),
-            Statement::PathCall(id, exprs)
-            | Statement::Split(id, exprs) => {
+            Statement::PathCall(id, exprs) | Statement::Split(id, exprs) => {
                 check_args(exprs, &ctx.protos[&*id].clone().args, e_map, ctx)
             }
             Statement::Store(expr, var) => {
@@ -344,18 +356,34 @@ impl Expr {
                     .into_iter()
                     .filter_map(|(inp, out)| (out == ty).then_some(inp))
                     .collect();
-                if poss_types.len() == 1 {
-                    return Ok(lhs.expect_type(poss_types[0], ctx)? & rhs.expect_type(poss_types[0], ctx)?);
+                match poss_types.len() {
+                    0 => Err(e_map(TypeError::BiOpWrongResult(*op, ty))),
+                    1 => Ok(lhs.expect_type(poss_types[0], ctx)?
+                        & rhs.expect_type(poss_types[0], ctx)?),
+                    _ => {
+                        let lhs_ty = lhs.val_type(ctx)?;
+                        if lhs_ty.0 != ValType::Any {
+                            return if poss_types.contains(&lhs_ty.0) {
+                                Ok(lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?)
+                            } else if op.types().iter().any(|(inp, _)| *inp == lhs_ty.0) {
+                                Err(e_map(TypeError::BiOpWrongTypeForResult(*op, lhs_ty.0, ty)))
+                            } else {
+                                Err(e_map(TypeError::BiOpWrongType(*op, lhs_ty.0)))
+                            };
+                        }
+                        let rhs_ty = rhs.val_type(ctx)?;
+                        if rhs_ty.0 != ValType::Any {
+                            return if poss_types.contains(&rhs_ty.0) {
+                                Ok(lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1)
+                            } else if op.types().iter().any(|(inp, _)| *inp == rhs_ty.0) {
+                                Err(e_map(TypeError::BiOpWrongTypeForResult(*op, rhs_ty.0, ty)))
+                            } else {
+                                Err(e_map(TypeError::BiOpWrongType(*op, rhs_ty.0)))
+                            };
+                        }
+                        Ok(lhs_ty.1 & rhs_ty.1)
+                    }
                 }
-                let lhs_ty = lhs.val_type(ctx)?;
-                if lhs_ty.0 != ValType::Any && poss_types.contains(&lhs_ty.0) {
-                    return Ok(lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?);
-                }
-                let rhs_ty = rhs.val_type(ctx)?;
-                if rhs_ty.0 != ValType::Any && poss_types.contains(&rhs_ty.0) {
-                    return Ok(lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1);
-                }
-                Err(e_map(TypeError::BiOpWrongType(*op, ty)))
             }
             ExprKind::UnOperation(op, expr) => {
                 if op.val_type() != ty {
@@ -404,18 +432,30 @@ impl Expr {
             ExprKind::Const(val) => Ok((val.val_type(), Vars::new())),
             ExprKind::Variable(var) => var.val_type(ctx),
             ExprKind::BiOperation(lhs, op, rhs) => {
-                let (lhs_type, rhs_type) = (lhs.val_type(ctx)?, rhs.val_type(ctx)?);
-                if lhs_type.0 != rhs_type.0 {
-                    Err(e_map(TypeError::BiOpDifferentTypes(
-                        *op, lhs_type.0, rhs_type.0,
-                    )))
+                let types = op.types();
+                if types.len() == 1 {
+                    Ok((
+                        types[0].1,
+                        lhs.expect_type(types[0].0, ctx)? & rhs.expect_type(types[0].0, ctx)?,
+                    ))
                 } else {
-                    for (inp, out) in op.types() {
-                        if inp == lhs_type.0 {
-                            return Ok((out, lhs_type.1 & rhs_type.1));
-                        }
+                    let lhs_ty = lhs.val_type(ctx)?;
+                    if lhs_ty.0 != ValType::Any {
+                        return if types.iter().any(|(inp, _)| *inp == lhs_ty.0) {
+                            Ok((lhs_ty.0, lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?))
+                        } else {
+                            Err(e_map(TypeError::BiOpWrongType(*op, lhs_ty.0)))
+                        };
                     }
-                    Err(e_map(TypeError::BiOpWrongType(*op, lhs_type.0)))
+                    let rhs_ty = rhs.val_type(ctx)?;
+                    if rhs_ty.0 != ValType::Any {
+                        return if types.iter().any(|(inp, _)| *inp == rhs_ty.0) {
+                            Ok((rhs_ty.0, lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1))
+                        } else {
+                            Err(e_map(TypeError::BiOpWrongType(*op, rhs_ty.0)))
+                        };
+                    }
+                    Ok((ValType::Any, lhs_ty.1 & rhs_ty.1))
                 }
             }
             ExprKind::UnOperation(op, expr) => {
@@ -525,7 +565,9 @@ impl Variable {
                     }
                 }
             }
-            VariableKind::GlobalPreDef(pdv) => pdv.val_type(&ctx.features).assert(ty).map_err(e_map)?,
+            VariableKind::GlobalPreDef(pdv) => {
+                pdv.val_type(&ctx.features).assert(ty).map_err(e_map)?
+            }
         }
         Ok(())
     }
@@ -547,6 +589,10 @@ pub enum TypeError {
     BiOpDifferentTypes(BiOperator, ValType, ValType),
     #[error("operator {0} not defined for {1}")]
     BiOpWrongType(BiOperator, ValType),
+    #[error("operator {0} cannot result in {1}")]
+    BiOpWrongResult(BiOperator, ValType),
+    #[error("operator {0} for {1} doesn't result in {2}")]
+    BiOpWrongTypeForResult(BiOperator, ValType, ValType),
     #[error("operator {0} not defined for {1}")]
     UnOpWrongType(UnOperator, ValType),
     #[error("absolute value not defined for {0}")]

@@ -9,7 +9,8 @@ use parking_lot::Mutex;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
-    tokens::{StmtKind, Value}, TProgram,
+    tokens::{StmtKind, Value},
+    TProgram,
 };
 
 use super::{
@@ -19,35 +20,38 @@ use super::{
     DbgAction, EventKind, GlobalCtx, TurtleWaker,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepResult {
+    Exec(StmtKind),
+    Sync,
+    Breakpoint,
+    Finished,
+}
+
 pub struct DebugRunner<'p, W> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
     pub finished: bool,
     actions: Receiver<(DbgAction<'p>, FilePos)>,
-    pub breakpoints: Vec<FilePos>,
     pub narrate: bool,
     last_pos: FilePos,
-    debug: bool,
     ctx: Rc<GlobalCtx<W>>,
     split_queue: Vec<(usize, Vec<Value>, Box<Turtle>)>,
     fut: Pin<Box<dyn Future<Output = ()> + 'p>>,
 }
 
 impl<'p, W: Window + 'p> DebugRunner<'p, W> {
-    pub fn new(prog: &'p TProgram, ctx: Rc<GlobalCtx<W>>, debug: bool) -> DebugRunner<'p, W> {
-        Self::construct(prog, ctx, debug, Turtle::new(), |task| {
-            Box::pin(task.execute())
-        })
+    pub fn new(prog: &'p TProgram, ctx: Rc<GlobalCtx<W>>) -> DebugRunner<'p, W> {
+        Self::construct(prog, ctx, Turtle::new(), |task| Box::pin(task.execute()))
     }
 
     pub fn for_event(
         prog: &'p TProgram,
         ctx: Rc<GlobalCtx<W>>,
-        debug: bool,
         kind: EventKind,
         args: Vec<Value>,
     ) -> DebugRunner<'p, W> {
-        Self::construct(prog, ctx, debug, Turtle::new(), |task| {
+        Self::construct(prog, ctx, Turtle::new(), |task| {
             Box::pin(task.execute_event(kind, args))
         })
     }
@@ -55,22 +59,19 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
     fn construct(
         prog: &'p TProgram,
         ctx: Rc<GlobalCtx<W>>,
-        debug: bool,
         turtle: Turtle,
         f: impl FnOnce(DebugTask<'p, W>) -> Pin<Box<dyn Future<Output = ()> + 'p>>,
     ) -> Self {
         let turtle = Rc::new(Mutex::new(turtle));
         let (tx, rx) = mpsc::channel();
-        let task = DebugTask::new(prog, turtle.clone(), ctx.clone(), tx, debug);
+        let task = DebugTask::new(prog, turtle.clone(), ctx.clone(), tx);
         Self {
             prog,
             turtle,
             finished: false,
             actions: rx,
-            breakpoints: Vec::new(),
             narrate: false,
             last_pos: prog.main.begin,
-            debug,
             ctx,
             split_queue: Vec::new(),
             fut: f(task),
@@ -78,13 +79,9 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
     }
 
     fn split(&self, path: usize, args: Vec<Value>, turtle: Turtle) -> DebugRunner<'p, W> {
-        Self::construct(
-            self.prog,
-            self.ctx.clone(),
-            self.debug,
-            turtle,
-            |task| Box::pin(task.execute_path(path, args)),
-        )
+        Self::construct(self.prog, self.ctx.clone(), turtle, |task| {
+            Box::pin(task.execute_path(path, args))
+        })
     }
 
     pub fn poll_splits(&mut self) -> Vec<DebugRunner<'p, W>> {
@@ -238,7 +235,9 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
                     act = Some(DbgAction::AfterStmt(stmt).attach_pos(pos));
                     self.last_pos = pos;
                 }
-                Ok((DbgAction::Split(path, args, ttl), _)) => self.split_queue.push((path, args, ttl)),
+                Ok((DbgAction::Split(path, args, ttl), _)) => {
+                    self.split_queue.push((path, args, ttl))
+                }
                 Ok((a, pos)) => act = Some(a.attach_pos(pos)),
                 Err(TryRecvError::Disconnected) => return Err(TryRecvError::Disconnected),
                 Err(TryRecvError::Empty) => return act.ok_or(TryRecvError::Empty),
@@ -268,32 +267,80 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         self.finished = true;
     }
 
-    pub fn step_single(&mut self) -> StmtKind {
-        // enum StepResult { Exec(StmtKind), Finished, Sync }
+    pub fn step_single(&mut self) -> StepResult {
         if self.finished {
-            return StmtKind::Any;
+            return StepResult::Finished;
         }
-        let mut res = StmtKind::Control;
+        let mut res = None;
         let waker = TurtleWaker::get_waker();
         let mut cx = std::task::Context::from_waker(&waker);
         while self.fut.as_mut().poll(&mut cx).is_pending() {
-            match *self.get_action().expect("future should only return if some action was sent") {
+            let act = self
+                .get_action()
+                .expect("future should only return if some action was sent");
+            match *act {
                 DbgAction::AfterStmt(stmt) => {
                     if self.narrate {
                         stmt.narrate(&self.prog.symbols);
                     }
-                    res = res.max(stmt.kind());
+                    // use first kind
+                    // all following will be end of control structures
+                    res = res.or(Some(stmt.kind()));
                 }
-                DbgAction::Sleep => return StmtKind::Draw,
+                DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
                     *self.ctx.wait_end.lock() = wait;
-                    self.finished = true;
+                    break;
                 }
-                DbgAction::BeforeStmt => return res,
+                DbgAction::BeforeStmt => {
+                    for bp in &*self.ctx.breakpoints.lock() {
+                        if self.last_pos < *bp && *bp < act.get_pos() {
+                            return StepResult::Breakpoint;
+                        }
+                    }
+                    if let Some(kind) = res {
+                        return StepResult::Exec(kind);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        self.finished = true;
+        if let Some(kind) = res {
+            StepResult::Exec(kind)
+        } else {
+            StepResult::Finished
+        }
+    }
+
+    pub fn run_breakpoints(&mut self) -> StepResult {
+        let waker = TurtleWaker::get_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        while self.fut.as_mut().poll(&mut cx).is_pending() {
+            let act = self
+                .get_action()
+                .expect("future should only return if some action was sent");
+            match *act {
+                DbgAction::BeforeStmt => {
+                    for bp in &*self.ctx.breakpoints.lock() {
+                        if self.last_pos < *bp && *bp < act.get_pos() {
+                            return StepResult::Breakpoint;
+                        }
+                    }
+                }
+                DbgAction::AfterStmt(stmt) if self.narrate => {
+                    stmt.narrate(&self.prog.symbols);
+                }
+                DbgAction::Sleep => return StepResult::Sync,
+                DbgAction::Finished(wait) => {
+                    *self.ctx.wait_end.lock() = wait;
+                    break;
+                }
                 _ => {}
             }
         }
-        res
+        self.finished = true;
+        StepResult::Finished
     }
 
     // fn handle_breakpoints(&mut self, action: Pos<DbgAction<'p>>) {

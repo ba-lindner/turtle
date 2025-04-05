@@ -80,7 +80,7 @@ impl Parser<'_, '_> {
                 let stmts = self.parse_statements(fp, Keyword::Until)?;
                 Ok(Statement::RepeatLoop(self.parse_expr()?, stmts))
             }
-            c => panic!("unknown statement {c}"), // Err(ParseError::UnknownStatement(c).attach_pos(fp)),
+            c => Err(ParseError::UnknownStatement(c).attach_pos(fp)),
         }?
         .attach_pos(fp))
     }

@@ -46,7 +46,7 @@ pub enum Statement {
     RepeatLoop(Expr, Block),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum StmtKind {
     Control,
     Any,

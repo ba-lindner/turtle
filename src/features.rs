@@ -1,4 +1,7 @@
-use std::{fmt::Display, ops::{Index, IndexMut}};
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+};
 
 use clap::ValueEnum;
 
@@ -10,7 +13,7 @@ impl FeatureConf {
         match self[feature] {
             FeatureState::Auto => self[feature] = FeatureState::Enabled,
             FeatureState::Enabled => {}
-            FeatureState::Disabled => return Err(feature)
+            FeatureState::Disabled => return Err(feature),
         }
         Ok(())
     }

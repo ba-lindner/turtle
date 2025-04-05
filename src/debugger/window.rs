@@ -1,6 +1,4 @@
-use sdl2::{
-    event::Event, pixels::Color, rect::Point, render::Canvas, EventPump,
-};
+use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
 
 use super::{TColor, TCoord};
 

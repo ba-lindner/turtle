@@ -30,7 +30,7 @@ pub enum FilePosParseErr {
     #[error("no delimiter")]
     NoDelimiter,
     #[error("{0}")]
-    ParseError(#[from] ParseIntError)
+    ParseError(#[from] ParseIntError),
 }
 
 impl FromStr for FilePos {
