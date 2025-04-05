@@ -64,6 +64,12 @@ pub enum ProgEnd {
     AllTurtlesFinished,
 }
 
+struct Breakpoint {
+    id: usize,
+    enabled: bool,
+    pos: FilePos,
+}
+
 struct GlobalCtx<W> {
     vars: Mutex<VarList>,
     args: [Value; 9],
@@ -71,7 +77,7 @@ struct GlobalCtx<W> {
     wait_end: Mutex<bool>,
     window: Mutex<W>,
     debug: bool,
-    breakpoints: Mutex<Vec<FilePos>>,
+    breakpoints: Mutex<Vec<Breakpoint>>,
 }
 
 impl<W: Window> GlobalCtx<W> {
@@ -93,12 +99,33 @@ impl<W: Window> GlobalCtx<W> {
             _ => unreachable!(),
         }
     }
+
+    pub fn breakpoint_hit(&self, last_pos: FilePos, curr_pos: FilePos) -> Option<usize> {
+        for bp in &*self.breakpoints.lock() {
+            if bp.enabled && last_pos < bp.pos && bp.pos < curr_pos {
+                return Some(bp.id);
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DbgEvent {
+    TurtleFinished(usize),
+    BreakpointHit(usize),
 }
 
 pub struct DebugRun<'p, W> {
     prog: &'p TProgram,
     ctx: Rc<GlobalCtx<W>>,
-    turtles: Vec<DebugRunner<'p, W>>,
+    turtles: Vec<(usize, DebugRunner<'p, W>)>,
+    turtle_id: usize,
+    breakpoint_id: usize,
+    active_turtle: usize,
+    stmt_count: usize,
+    events: Vec<DbgEvent>,
+    is_sync: bool,
 }
 
 impl<'p, W: Window + 'p> DebugRun<'p, W> {
@@ -117,6 +144,16 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
                 Value::Number(arg.parse().unwrap_or_default())
             }
         });
+        let breakpoint_id = breakpoints.len();
+        let breakpoints = breakpoints
+            .into_iter()
+            .enumerate()
+            .map(|(id, pos)| Breakpoint {
+                id,
+                enabled: true,
+                pos,
+            })
+            .collect();
         let ctx = Rc::new(GlobalCtx {
             vars: Mutex::new(VarList::new()),
             args,
@@ -130,13 +167,27 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
         Self {
             prog,
             ctx,
-            turtles: vec![runner],
+            turtles: vec![(0, runner)],
+            turtle_id: 1,
+            breakpoint_id,
+            active_turtle: 0,
+            stmt_count: 0,
+            events: Vec::new(),
+            is_sync: true,
         }
+    }
+
+    fn active(&mut self) -> &mut DebugRunner<'p, W> {
+        &mut self.turtles[self.active_turtle].1
+    }
+
+    fn active_id(&self) -> usize {
+        self.turtles[self.active_turtle].0
     }
 
     pub fn run(&mut self) {
         while !self.turtles.is_empty() {
-            self.turtles[0].run_sleep();
+            self.active().run_sleep();
             match self.sync_turtles() {
                 Ok(()) => {}
                 Err(ProgEnd::AllTurtlesFinished) => break,
@@ -156,23 +207,38 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
     /// afterwards, @delay is applied and events are handled
     fn sync_turtles(&mut self) -> Result<(), ProgEnd> {
         fn run_part<'p, W: Window + 'p>(
-            turtles: &mut [DebugRunner<'p, W>],
-        ) -> Vec<DebugRunner<'p, W>> {
+            turtles: &mut [(usize, DebugRunner<'p, W>)],
+            id: &mut usize,
+        ) -> Vec<(usize, DebugRunner<'p, W>)> {
             let mut res = Vec::new();
-            for ttl in turtles {
+            for (_, ttl) in turtles {
                 ttl.run_sleep();
-                res.append(&mut ttl.poll_splits());
+                res.append(&mut ttl.poll_splits(id));
             }
             res
         }
-        let mut splits = self.turtles[0].poll_splits();
-        splits.append(&mut run_part(&mut self.turtles[1..]));
+        let mut splits = Vec::new();
+        for idx in 0..=self.active_turtle {
+            splits.append(&mut self.turtles[idx].1.poll_splits(&mut self.turtle_id));
+        }
+        splits.append(&mut run_part(
+            &mut self.turtles[self.active_turtle + 1..],
+            &mut self.turtle_id,
+        ));
         while !splits.is_empty() {
-            let new_splits = run_part(&mut splits);
+            let new_splits = run_part(&mut splits, &mut self.turtle_id);
             self.turtles.append(&mut splits);
             splits = new_splits;
         }
-        self.turtles.retain(|ttl| !ttl.finished);
+        let active_id = self.active_id();
+        self.turtles.retain(|(_, ttl)| !ttl.finished);
+        if self.active_turtle >= self.turtles.len() || self.active_id() != active_id {
+            self.active_turtle = self
+                .turtles
+                .iter()
+                .position(|(idx, _)| *idx == active_id)
+                .unwrap_or_default();
+        }
         if self.turtles.is_empty() {
             return Err(ProgEnd::AllTurtlesFinished);
         }
@@ -183,31 +249,51 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
                 WindowEvent::WindowExited => return Err(ProgEnd::WindowExited),
                 WindowEvent::KeyPressed(c) => {
                     if eventing && self.prog.key_event.is_some() {
-                        self.turtles.push(DebugRunner::for_event(
-                            self.prog,
-                            self.ctx.clone(),
-                            EventKind::Key,
-                            vec![Value::String(c.to_string())],
+                        let id = self.turtle_id;
+                        self.turtle_id += 1;
+                        self.turtles.push((
+                            id,
+                            DebugRunner::for_event(
+                                self.prog,
+                                self.ctx.clone(),
+                                EventKind::Key,
+                                vec![Value::String(c.to_string())],
+                            ),
                         ));
                     }
                 }
                 WindowEvent::MouseClicked(coord, btn) => {
                     if eventing && self.prog.mouse_event.is_some() {
-                        self.turtles.push(DebugRunner::for_event(
-                            self.prog,
-                            self.ctx.clone(),
-                            EventKind::Mouse,
-                            vec![
-                                Value::Number(coord.0),
-                                Value::Number(coord.1),
-                                Value::Boolean(btn),
-                            ],
+                        let id = self.turtle_id;
+                        self.turtle_id += 1;
+                        self.turtles.push((
+                            id,
+                            DebugRunner::for_event(
+                                self.prog,
+                                self.ctx.clone(),
+                                EventKind::Mouse,
+                                vec![
+                                    Value::Number(coord.0),
+                                    Value::Number(coord.1),
+                                    Value::Boolean(btn),
+                                ],
+                            ),
                         ));
                     }
                 }
             }
         }
+        self.is_sync = true;
         Ok(())
+    }
+
+    fn after_sync(&mut self) {
+        if self.is_sync {
+            for idx in 0..self.active_turtle {
+                self.turtles[idx].1.run_sleep();
+            }
+            self.is_sync = false;
+        }
     }
 
     pub fn run_debug(&mut self) {
@@ -244,15 +330,94 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
             DbgCommand::StepDraw => self.step_kind(StmtKind::Draw)?,
             DbgCommand::StepSync => self.step_sync()?,
             DbgCommand::Run => self.run_breakpoints()?,
-            DbgCommand::ToggleNarrate => self.turtles[0].narrate = !self.turtles[0].narrate,
-            DbgCommand::Vardump => self.turtles[0].dump_vars(),
-            DbgCommand::CurrPos => self.turtles[0].print_pos(),
+            DbgCommand::ToggleNarrate => {
+                self.active().narrate = !self.active().narrate;
+                println!("narrator is {}", if self.active().narrate { "ON" } else { "OFF" });
+            }
+            DbgCommand::Vardump => self.active().dump_vars(),
+            DbgCommand::CurrPos => {
+                let pos = self.active().curr_pos();
+                println!(
+                    "turtle #{} is currently in {} at {}",
+                    self.active_id(),
+                    pos.0.disp(&self.prog.symbols),
+                    pos.1
+                );
+            }
+            DbgCommand::ListTurtles => {
+                println!("turtles are {}in sync", if self.is_sync { "" } else { "NOT " });
+                println!("active turtle: #{}", self.active_id());
+                for (id, ttl) in &self.turtles {
+                    let func = ttl.start_task.0.disp(&self.prog.symbols);
+                    print!("#{id:<3} {func}");
+                    for val in &ttl.start_task.1 {
+                        print!(" {val}");
+                    }
+                    println!()
+                }
+            }
+            DbgCommand::SelectTurtle(id) => {
+                if self.is_sync {
+                    if let Some(idx) = self.turtles.iter().position(|(tid, _)| *tid == id) {
+                        self.active_turtle = idx;
+                        println!("turtle #{id} is now active");
+                    } else {
+                        eprintln!("no such turtle");
+                    }
+                } else {
+                    eprintln!("active turtle can only be selected when turtles are synchronized");
+                }
+            }
+            DbgCommand::ListBreakpoints => {
+                for bp in &*self.ctx.breakpoints.lock() {
+                    println!("#{:<3} {} {}", bp.id, if bp.enabled { "enabled " } else { "disabled" }, bp.pos);
+                }
+            }
+            DbgCommand::AddBreakpoint(pos) => {
+                let id = self.breakpoint_id;
+                self.breakpoint_id += 1;
+                self.ctx.breakpoints.lock().push(Breakpoint { id, enabled: true, pos });
+            }
+            DbgCommand::DeleteBreakpoint(id) => {
+                self.ctx.breakpoints.lock().retain(|b| b.id != id);
+            }
+            DbgCommand::EnableBreakpoint(id, active) => {
+                if let Some(bp) = self.ctx.breakpoints.lock().iter_mut().find(|b| b.id == id) {
+                    bp.enabled = active;
+                } else {
+                    eprintln!("no breakpoint #{id}");
+                }
+            }
+        }
+        if self.stmt_count > 0 {
+            println!("executed {} statements", self.stmt_count);
+            self.stmt_count = 0;
+        }
+        for evt in self.events.drain(..) {
+            match evt {
+                DbgEvent::TurtleFinished(id) => println!("turtle #{id} finished"),
+                DbgEvent::BreakpointHit(id) => println!("breakpoint #{id} hit"),
+            }
         }
         Ok(())
     }
 
+    fn collect_events(&mut self, res: StepResult) {
+        match res {
+            StepResult::Exec(_) => self.stmt_count += 1,
+            StepResult::Sync => {}
+            StepResult::Breakpoint(idx) => self.events.push(DbgEvent::BreakpointHit(idx)),
+            StepResult::Finished => self
+                .events
+                .push(DbgEvent::TurtleFinished(self.turtles[self.active_turtle].0)),
+        }
+    }
+
     fn step_single(&mut self) -> Result<Option<StmtKind>, ProgEnd> {
-        match self.turtles[0].step_single() {
+        self.after_sync();
+        let res = self.active().step_single();
+        self.collect_events(res);
+        match res {
             StepResult::Exec(kind) => Ok(Some(kind)),
             StepResult::Sync => {
                 self.sync_turtles()?;
@@ -265,13 +430,13 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
                 self.sync_turtles()?;
                 Ok(None)
             }
-            StepResult::Breakpoint => Ok(None),
+            StepResult::Breakpoint(_) => Ok(None),
         }
     }
 
     fn step_over(&mut self) -> Result<(), ProgEnd> {
-        let stack_size = self.turtles[0].stack_size();
-        while self.step_single()?.is_some() && self.turtles[0].stack_size() > stack_size {}
+        let stack_size = self.active().stack_size();
+        while self.step_single()?.is_some() && self.active().stack_size() > stack_size {}
         Ok(())
     }
 
@@ -281,7 +446,10 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
     }
 
     fn step_sync(&mut self) -> Result<(), ProgEnd> {
-        if self.turtles[0].run_breakpoints() != StepResult::Breakpoint {
+        self.after_sync();
+        let res = self.active().run_breakpoints();
+        self.collect_events(res);
+        if !matches!(res, StepResult::Breakpoint(_)) {
             self.sync_turtles()?;
         }
         Ok(())
@@ -289,16 +457,15 @@ impl<'p, W: Window + 'p> DebugRun<'p, W> {
 
     fn run_breakpoints(&mut self) -> Result<(), ProgEnd> {
         loop {
-            match self.turtles[0].run_breakpoints() {
+            self.after_sync();
+            let res = self.active().run_breakpoints();
+            self.collect_events(res);
+            match res {
                 StepResult::Exec(_) => unreachable!(),
-                StepResult::Sync => {
+                StepResult::Sync | StepResult::Finished => {
                     self.sync_turtles()?;
                 }
-                StepResult::Breakpoint => return Ok(()),
-                StepResult::Finished => {
-                    self.sync_turtles()?;
-                    return Ok(());
-                }
+                StepResult::Breakpoint(_) => return Ok(()),
             }
         }
     }

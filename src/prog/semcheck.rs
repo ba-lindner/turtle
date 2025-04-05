@@ -324,7 +324,7 @@ impl Pos<Statement> {
                 step,
                 body,
             } => {
-                counter.expect_type(ValType::String, ctx)?;
+                counter.expect_type(ValType::Number, ctx)?;
                 let f = from.expect_type(ValType::Number, ctx)?;
                 let t = to.expect_type(ValType::Number, ctx)?;
                 let s = step

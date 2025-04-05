@@ -16,6 +16,18 @@ pub enum FuncType {
     Event(EventKind),
 }
 
+impl FuncType {
+    pub fn disp(&self, symbols: &SymbolTable) -> String {
+        let name = |id| symbols.get_index(id).unwrap().0;
+        match self {
+            FuncType::Main => "main block".to_string(),
+            FuncType::Path(id) => format!("path {}", name(*id)),
+            FuncType::Calc(id) => format!("calculation {}", name(*id)),
+            FuncType::Event(kind) => format!("{kind} event handler"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Turtle {
     pos: TCoord,
@@ -72,7 +84,7 @@ impl Turtle {
     }
 
     pub fn move_mark(&mut self, ctx: &GlobalCtx<impl Window>, draw: bool) {
-        let mark = self.marks.pop().expect("no mark");
+        let mark = self.marks.pop().unwrap_or_default();
         self.dir = mark.1;
         self.move_to(ctx, mark.0, draw);
     }

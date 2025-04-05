@@ -1,11 +1,25 @@
 # TODOs
 
-- [ ] Implement more features
-  - [ ] Multithreading
-  - [ ] Events
+- [ ] Implement features
+  - [x] Types
+    - [ ] Arrays
+  - [x] Multithreading
+  - [x] Events
+    - [ ] events w/o types or feature dependency
   - [ ] Parameters
+  - [ ] Early Returns
+- [ ] improved debugger
+  - [x] give feedback on what happened
+  - [x] identify & choose active turtle
+  - [ ] set variables
+    - [ ] identify "const" calculations
+    - [ ] allow these to be used
+  - [x] view & edit breakpoints
+    - [x] enable / disable
+    - [x] add / remove
+  - [ ] allow custom i/o for debug commands / output 
 - [ ] Turtle Webserver
-  - [ ] add `Window` trait
+  - [x] add `Window` trait
   - [ ] implement buffered Window
   - [ ] implement API Window
   - [ ] write Client

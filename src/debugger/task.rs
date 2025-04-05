@@ -167,7 +167,8 @@ impl<'p, W: Window> DebugTask<'p, W> {
                 self.ret(DbgAction::Sleep, *draw).await;
             }
             Statement::Print(expr) => {
-                println!("Turtle says: {}", self.dbg_expr(expr).await.string())
+                let msg = self.dbg_expr(expr).await.string();
+                self.ctx.window.lock().print(&msg);
             }
             Statement::Split(id, args) => {
                 let args = self.dbg_args(args).await;

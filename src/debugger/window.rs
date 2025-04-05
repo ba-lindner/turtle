@@ -11,6 +11,8 @@ pub trait Window {
     fn draw(&mut self, from: TCoord, to: TCoord, col: TColor);
     fn clear(&mut self);
 
+    fn print(&mut self, msg: &str);
+
     fn events(&mut self) -> Vec<WindowEvent>;
 }
 
@@ -91,6 +93,10 @@ impl Window for SdlWindow {
         self.canvas.set_draw_color(Color::BLACK);
         self.canvas.clear();
         self.canvas.present();
+    }
+
+    fn print(&mut self, msg: &str) {
+        println!("Turtle says: {msg}");
     }
 
     fn events(&mut self) -> Vec<WindowEvent> {

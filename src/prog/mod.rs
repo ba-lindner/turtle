@@ -95,8 +95,8 @@ impl TProgram {
         let mut symbols = SymbolTable::new();
         let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
         if print_symbols {
-            for (idx, (name, kind)) in symbols.iter().enumerate() {
-                println!("#{idx:<3} {name:<20} {kind}")
+            for (idx, (name, _)) in symbols.iter().enumerate() {
+                println!("#{idx:<3} {name}");
             }
         }
         let parser = Parser::new(&mut symbols, ltokens, &mut features);
