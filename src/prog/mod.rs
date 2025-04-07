@@ -1,9 +1,5 @@
 use crate::{
-    debugger::{
-        interface::Terminal, window::{SdlWindow, Window}, DebugRun
-    },
     features::FeatureConf,
-    pos::FilePos,
     tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType},
     Identified, SymbolTable, TurtleError,
 };
@@ -172,21 +168,21 @@ impl TProgram {
         }
     }
 
-    pub fn interpret(&self, args: &[String]) {
-        self.interpret_with(args, SdlWindow::new(&self.title("Interpreter")));
-    }
+    // pub fn interpret(&self, args: &[String]) {
+    //     self.interpret_with(args, SdlWindow::new(&self.title("Interpreter")));
+    // }
 
-    pub fn interpret_with(&self, args: &[String], window: impl Window) {
-        DebugRun::new(self, args, window, false, Vec::new()).run();
-    }
+    // pub fn interpret_with(&self, args: &[String], window: impl Window) {
+    //     DebugRun::new(self, args, window, false, Vec::new()).run();
+    // }
 
-    pub fn debug(&self, args: &[String], breakpoints: Vec<FilePos>) {
-        self.debug_with(args, breakpoints, SdlWindow::new(&self.title("Debugger")));
-    }
+    // pub fn debug(&self, args: &[String], breakpoints: Vec<FilePos>) {
+    //     self.debug_with(args, breakpoints, SdlWindow::new(&self.title("Debugger")));
+    // }
 
-    pub fn debug_with<'p, W: Window + 'p>(&'p self, args: &[String], breakpoints: Vec<FilePos>, window: W) {
-        DebugRun::new(self, args, window, true, breakpoints).debug_in(Terminal);
-    }
+    // pub fn debug_with<'p, W: Window + 'p>(&'p self, args: &[String], breakpoints: Vec<FilePos>, window: W) {
+    //     DebugRun::new(self, args, window, true, breakpoints).debug_in(Terminal);
+    // }
 }
 
 /// Path definition in turtle program

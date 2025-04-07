@@ -10,7 +10,7 @@ pub use prog::TProgram;
 use tokens::{EventKind, ValType};
 
 mod ccomp;
-mod debugger;
+pub mod debugger;
 pub mod features;
 pub mod pos;
 mod prog;

@@ -1,9 +1,6 @@
-use clap::{Args, Parser, Subcommand};
-use std::process::Command;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use turtle::{
-    features::{Feature, FeatureConf, FeatureState},
-    pos::FilePos,
-    TProgram,
+    debugger::{config::RunConfig, interface::{Terminal, VSCode}, window::{SdlWindow, Window}}, features::{Feature, FeatureConf, FeatureState}, pos::FilePos, TProgram
 };
 
 #[derive(Parser)]
@@ -22,9 +19,8 @@ enum TCommand {
         /// const-fold before execution
         #[arg(short, long)]
         optimized: bool,
-        /// args passed to turtle
-        #[arg(last = true)]
-        args: Vec<String>,
+        #[command(flatten)]
+        opt: RunOpt,
     },
     /// Start debugger
     Debug {
@@ -33,20 +29,16 @@ enum TCommand {
         /// set breakpoints in format line,column
         #[arg(short, long)]
         breakpoint: Vec<FilePos>,
-        /// args passed to turtle
-        #[arg(last = true)]
-        args: Vec<String>,
+        /// select debugging interface
+        #[arg(short, long)]
+        interface: Interf,
+        #[command(flatten)]
+        opt: RunOpt,
     },
     /// Compile to C
     Compile {
         #[command(flatten)]
         source: Source,
-        /// enable debug builds
-        #[arg(short, long)]
-        debug: bool,
-        /// rebuild turtle interface
-        #[arg(short, long)]
-        no_cache: bool,
     },
     /// Check syntax
     Check {
@@ -101,30 +93,77 @@ impl Source {
     }
 }
 
+#[derive(Args)]
+#[group()]
+struct RunOpt {
+    /// display mechanism
+    #[arg(short, long)]
+    window: Display,
+    /// args passed to turtle
+    #[arg(last = true)]
+    args: Vec<String>,
+}
+
+impl RunOpt {
+    fn config<'a>(&'a self, title: &str) -> RunConfig<'a, Box<dyn Window>, Terminal> {
+        RunConfig::new(&self.args).window(match self.window {
+            Display::SDL => Box::new(SdlWindow::new(title)),
+            Display::Void => Box::new((20.0, 15.0)),
+        })
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]
+pub enum Display {
+    /// use SDL2 to draw turtles
+    #[default]
+    SDL,
+    /// no display
+    Void,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]
+pub enum Interf {
+    /// run as standalone debugger
+    #[default]
+    Terminal,
+    /// run as vscode extension
+    VSCode,
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
         TCommand::Run {
             source,
             optimized,
-            args,
+            opt
         } => {
             let mut prog = source.get_prog();
             if optimized {
                 prog.optimize();
             }
-            prog.interpret(&args);
+            opt.config(&prog.title("Interpreter")).exec(&prog);
         }
         TCommand::Debug {
             source,
-            breakpoint: bp,
-            args,
-        } => source.get_prog().debug(&args, bp),
+            breakpoint,
+            interface,
+            opt,
+        } => {
+            let prog = source.get_prog();
+            let conf = opt
+                .config(&prog.title("Debugger"))
+                .debug_in(Terminal)
+                .breakpoints(breakpoint);
+            match interface {
+                Interf::Terminal => conf.exec(&prog),
+                Interf::VSCode => conf.debug_in(VSCode).exec(&prog),
+            }
+        }
         TCommand::Compile {
             source,
-            debug,
-            no_cache,
-        } => compile(source.get_prog(), &source.file, no_cache, debug),
+        } => compile(source.get_prog(), &source.file),
         TCommand::Check {
             source,
             print_symbols,
@@ -132,7 +171,7 @@ fn main() {
     }
 }
 
-fn compile(prog: TProgram, filename: &str, no_cache: bool, debug: bool) {
+fn compile(prog: TProgram, filename: &str) {
     let mut cc = turtle::CComp::new(prog);
     let resfile = format!(
         "ccomp\\{}",
@@ -140,93 +179,6 @@ fn compile(prog: TProgram, filename: &str, no_cache: bool, debug: bool) {
     );
     cc.set_filename(&resfile);
     cc.compile();
-    Command::new("gcc")
-        .args([
-            "-Wall",
-            "-g",
-            "-I",
-            "C:\\Users\\Bernhard\\Documents\\SDL2-2.26.2\\x86_64-w64-mingw32\\include",
-            "-c",
-            &resfile,
-            "-o",
-            "ccomp\\obj\\turtlegraphic.o",
-        ])
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
-    if no_cache {
-        Command::new("gcc")
-            .args([
-                "-Wall",
-                "-g",
-                "-I",
-                "C:\\Users\\Bernhard\\Documents\\SDL2-2.26.2\\x86_64-w64-mingw32\\include",
-                "-c",
-                "ccomp\\turtleinterf.c",
-                "-o",
-                "ccomp\\obj\\turtleinterf.o",
-            ])
-            .spawn()
-            .unwrap()
-            .wait()
-            .unwrap();
-        Command::new("gcc")
-            .args([
-                "-Wall",
-                "-g",
-                "-I",
-                "C:\\Users\\Bernhard\\Documents\\SDL2-2.26.2\\x86_64-w64-mingw32\\include",
-                "-c",
-                "ccomp\\turtleinterf_debug.c",
-                "-o",
-                "ccomp\\obj\\turtleinterf_debug.o",
-            ])
-            .spawn()
-            .unwrap()
-            .wait()
-            .unwrap();
-    }
-    let ti = if debug {
-        "ccomp\\obj\\turtleinterf_debug.o"
-    } else {
-        "ccomp\\obj\\turtleinterf.o"
-    };
-    Command::new("gcc")
-        .args([
-            "-L",
-            "C:\\Users\\Bernhard\\Documents\\SDL2-2.26.2\\x86_64-w64-mingw32\\lib",
-            "-o",
-            "turtle.exe",
-            "ccomp\\obj\\sdlinterf.o",
-            ti,
-            "ccomp\\obj\\turtlegraphic.o",
-            "-static",
-            "-lmingw32",
-            "-lSDL2main",
-            "-lSDL2",
-            "-Wl,--no-undefined",
-            "-lm",
-            "-ldinput8",
-            "-ldxguid",
-            "-ldxerr8",
-            "-luser32",
-            "-lgdi32",
-            "-lwinmm",
-            "-limm32",
-            "-lole32",
-            "-loleaut32",
-            "-lshell32",
-            "-lversion",
-            "-luuid",
-            "-static-libgcc",
-            "-lhid",
-            "-lsetupapi",
-        ])
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
 }
 
 #[cfg(test)]

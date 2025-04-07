@@ -1,5 +1,5 @@
 use crate::{
-    debugger::{window::Window, DbgEvent, DebugRun, ProgEnd},
+    debugger::{window::Window, DbgEvent, Debugger, ProgEnd},
     tokens::StmtKind,
 };
 
@@ -23,9 +23,9 @@ impl Terminal {
         }
     }
 
-    fn exec_cmd<'p, W: Window + 'p>(
+    pub fn exec_cmd<'p, W: Window + 'p>(
         &self,
-        run: &mut DebugRun<'p, W>,
+        run: &mut Debugger<'p, W>,
         cmd: DbgCommand,
     ) -> Result<(), ProgEnd> {
         match cmd {
@@ -144,18 +144,14 @@ impl Terminal {
 }
 
 impl DbgInterface for Terminal {
-    fn exec<'p, W: Window + 'p>(&mut self, mut run: DebugRun<'p, W>) {
+    fn exec<'p, W: Window + 'p>(&mut self, run: &mut Debugger<'p, W>) -> ProgEnd {
         println!("turtle debugger v{}", env!("CARGO_PKG_VERSION"));
         println!("enter 'help' to view available commands");
         while let Some(cmd) = self.get_command() {
-            match self.exec_cmd(&mut run, cmd) {
-                Ok(()) => {}
-                Err(ProgEnd::AllTurtlesFinished) => {
-                    run.finished();
-                    return;
-                }
-                Err(ProgEnd::WindowExited) => return,
+            if let Err(why) = self.exec_cmd(run, cmd) {
+                return why
             }
         }
+        return ProgEnd::WindowExited;
     }
 }

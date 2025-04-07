@@ -3,17 +3,63 @@ use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
 use super::{TColor, TCoord};
 
 pub trait Window {
-    fn get_max_x(&self) -> f64;
-    fn get_max_y(&self) -> f64;
-    fn set_max_x(&mut self, max_x: f64);
-    fn set_max_y(&mut self, max_y: f64);
+    fn init(&mut self, max_x: f64, max_y: f64) {
+        self.set_max_x(max_x);
+        self.set_max_y(max_y);
+    }
 
-    fn draw(&mut self, from: TCoord, to: TCoord, col: TColor);
-    fn clear(&mut self);
+    fn max_coords(&mut self) -> &mut (f64, f64);
 
-    fn print(&mut self, msg: &str);
+    fn get_max_x(&mut self) -> f64 {
+        self.max_coords().0
+    }
 
-    fn events(&mut self) -> Vec<WindowEvent>;
+    fn get_max_y(&mut self) -> f64 {
+        self.max_coords().1
+    }
+
+    fn set_max_x(&mut self, max_x: f64) {
+        self.max_coords().0 = max_x;
+    }
+
+    fn set_max_y(&mut self, max_y: f64) {
+        self.max_coords().1 = max_y;
+    }
+
+    fn draw(&mut self, _: TCoord, _: TCoord, _: TColor) {}
+    fn clear(&mut self) {}
+
+    fn print(&mut self, _: &str) {}
+
+    fn events(&mut self) -> Vec<WindowEvent> {
+        Vec::new()
+    }
+}
+
+impl Window for Box<dyn Window> {
+    fn init(&mut self, max_x: f64, max_y: f64) {
+        (**self).init(max_x, max_y);
+    }
+
+    fn max_coords(&mut self) -> &mut (f64, f64) {
+        (**self).max_coords()
+    }
+
+    fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {
+        (**self).draw(from, to, col);
+    }
+
+    fn clear(&mut self) {
+        (**self).clear();
+    }
+
+    fn print(&mut self, msg: &str) {
+        (**self).print(msg);
+    }
+
+    fn events(&mut self) -> Vec<WindowEvent> {
+        (**self).events()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,9 +70,16 @@ pub enum WindowEvent {
 }
 
 pub struct SdlWindow {
-    canvas: Canvas<sdl2::video::Window>,
-    event_pump: EventPump,
+    state: SdlState,
     max_coord: (f64, f64),
+}
+
+enum SdlState {
+    Uninit(String),
+    Init {
+        canvas: Canvas<sdl2::video::Window>,
+        event_pump: EventPump,
+    }
 }
 
 const WIDTH: u32 = 800;
@@ -34,22 +87,10 @@ const HEIGHT: u32 = 600;
 
 impl SdlWindow {
     pub fn new(title: &str) -> Self {
-        let sdl_context = sdl2::init().unwrap();
-        let video_sub = sdl_context.video().unwrap();
-        let window = video_sub
-            .window(title, WIDTH, HEIGHT)
-            .position_centered()
-            .build()
-            .unwrap();
-        let canvas = window.into_canvas().build().unwrap();
-        let event_pump = sdl_context.event_pump().unwrap();
-        let mut this = Self {
-            canvas,
-            event_pump,
-            max_coord: (20.0, 15.0),
-        };
-        this.clear();
-        this
+        Self {
+            state: SdlState::Uninit(title.to_string()),
+            max_coord: (0.0, 0.0),
+        }
     }
 
     fn map_coords(&self, point: TCoord) -> Point {
@@ -61,38 +102,50 @@ impl SdlWindow {
 }
 
 impl Window for SdlWindow {
-    fn get_max_x(&self) -> f64 {
-        self.max_coord.0
+    fn init(&mut self, max_x: f64, max_y: f64) {
+        self.max_coord = (max_x, max_y);
+        let SdlState::Uninit(title) = &self.state else {
+            panic!("already initialized");
+        };
+        let sdl_context = sdl2::init().unwrap();
+        let video_sub = sdl_context.video().unwrap();
+        let window = video_sub
+            .window(title, WIDTH, HEIGHT)
+            .position_centered()
+            .build()
+            .unwrap();
+        let canvas = window.into_canvas().build().unwrap();
+        let event_pump = sdl_context.event_pump().unwrap();
+        self.state = SdlState::Init { canvas, event_pump };
+        self.clear();
     }
 
-    fn get_max_y(&self) -> f64 {
-        self.max_coord.1
-    }
-
-    fn set_max_x(&mut self, max_x: f64) {
-        self.max_coord.0 = max_x;
-    }
-
-    fn set_max_y(&mut self, max_y: f64) {
-        self.max_coord.1 = max_y;
+    fn max_coords(&mut self) -> &mut (f64, f64) {
+        &mut self.max_coord
     }
 
     fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {
-        self.canvas.set_draw_color(Color::RGB(
+        let start = self.map_coords(from);
+        let end = self.map_coords(to);
+        let SdlState::Init { canvas, .. } = &mut self.state else {
+            panic!("uninitialized");
+        };
+        canvas.set_draw_color(Color::RGB(
             (col.0 * 2.55) as u8,
             (col.1 * 2.55) as u8,
             (col.2 * 2.55) as u8,
         ));
-        let start = self.map_coords(from);
-        let end = self.map_coords(to);
-        self.canvas.draw_line(start, end).unwrap();
-        self.canvas.present();
+        canvas.draw_line(start, end).unwrap();
+        canvas.present();
     }
 
     fn clear(&mut self) {
-        self.canvas.set_draw_color(Color::BLACK);
-        self.canvas.clear();
-        self.canvas.present();
+        let SdlState::Init { canvas, .. } = &mut self.state else {
+            panic!("uninitialized");
+        };
+        canvas.set_draw_color(Color::BLACK);
+        canvas.clear();
+        canvas.present();
     }
 
     fn print(&mut self, msg: &str) {
@@ -100,7 +153,10 @@ impl Window for SdlWindow {
     }
 
     fn events(&mut self) -> Vec<WindowEvent> {
-        self.event_pump
+        let SdlState::Init { event_pump, .. } = &mut self.state else {
+            panic!("uninitialized");
+        };
+        event_pump
             .poll_iter()
             .flat_map(|evt| match evt {
                 Event::KeyDown {
@@ -125,5 +181,11 @@ impl Window for SdlWindow {
                 _ => None,
             })
             .collect()
+    }
+}
+
+impl Window for (f64, f64) {
+    fn max_coords(&mut self) -> &mut (f64, f64) {
+        self
     }
 }
