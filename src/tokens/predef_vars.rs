@@ -4,7 +4,7 @@ use crate::features::{Feature, FeatureConf, FeatureState};
 
 use super::ValType;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum PredefVar {
     Dir,
     Dist,

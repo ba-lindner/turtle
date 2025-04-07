@@ -8,8 +8,9 @@ use crate::{
 
 use super::{varlist::VarList, window::Window, GlobalCtx, TColor, TCoord};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum FuncType {
+    #[default]
     Main,
     Path(usize),
     Calc(usize),
@@ -26,13 +27,28 @@ impl FuncType {
             FuncType::Event(kind) => format!("{kind} event handler"),
         }
     }
+
+    pub fn short(&self, symbols: &SymbolTable) -> String {
+        match self {
+            FuncType::Main => "main".to_string(),
+            FuncType::Path(id) | FuncType::Calc(id) => symbols.get_index(*id).unwrap().0.clone(),
+            FuncType::Event(kind) => kind.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct StackFrame {
+    pub func: FuncType,
+    pub vars: VarList,
+    pub curr_pos: FilePos,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Turtle {
     pos: TCoord,
     pub dir: f64,
-    pub stack: Vec<(FuncType, VarList)>,
+    pub stack: Vec<StackFrame>,
     marks: Vec<(TCoord, f64)>,
     col: TColor,
 }
@@ -42,7 +58,7 @@ impl Turtle {
         Self {
             pos: (0.0, 0.0),
             dir: 0.0,
-            stack: vec![(FuncType::Main, VarList::new())],
+            stack: vec![StackFrame::default()],
             marks: Vec::new(),
             col: super::START_COLOR,
         }
@@ -52,7 +68,7 @@ impl Turtle {
         Self {
             pos: self.pos,
             dir: self.dir,
-            stack: vec![(FuncType::Main, VarList::new())],
+            stack: vec![StackFrame::default()],
             marks: self.marks.clone(),
             col: self.col,
         }
@@ -91,9 +107,13 @@ impl Turtle {
 
     pub fn get_var(&mut self, ctx: &GlobalCtx<impl Window>, var: &Variable) -> Value {
         match &var.kind {
-            VariableKind::Local(id, ty) => {
-                self.stack.last_mut().unwrap().1.get_var(*id, *ty).clone()
-            }
+            VariableKind::Local(id, ty) => self
+                .stack
+                .last_mut()
+                .unwrap()
+                .vars
+                .get_var(*id, *ty)
+                .clone(),
             VariableKind::Global(id, ty) => ctx.vars.lock().get_var(*id, *ty).clone(),
             VariableKind::GlobalPreDef(pdv) => Value::Number(match pdv {
                 PredefVar::Dir => self.dir,
@@ -111,7 +131,7 @@ impl Turtle {
 
     pub fn set_var(&mut self, ctx: &GlobalCtx<impl Window>, var: &Variable, val: Value) {
         match &var.kind {
-            VariableKind::Local(id, _) => self.stack.last_mut().unwrap().1.set_var(*id, val),
+            VariableKind::Local(id, _) => self.stack.last_mut().unwrap().vars.set_var(*id, val),
             VariableKind::Global(id, _) => ctx.vars.lock().set_var(*id, val),
             VariableKind::GlobalPreDef(pdv) => match pdv {
                 PredefVar::Red => {
@@ -127,20 +147,7 @@ impl Turtle {
             },
         }
     }
-
-    pub fn dump_vars(&mut self, ctx: &GlobalCtx<impl Window>, symbols: &SymbolTable) {
-        println!("=== variable dump ===");
-        for pdv in PredefVar::get_all() {
-            let val = self.get_var(ctx, &VariableKind::GlobalPreDef(pdv).at(FilePos::default()));
-            println!("@{} = {val}", pdv.get_str());
-        }
-        println!();
-        ctx.vars.lock().dump(symbols, true);
-        println!();
-        self.stack.last().unwrap().1.dump(symbols, false);
-        println!("=== end of dump ===");
-    }
-
+    
     pub fn set_dir(&mut self, dir: f64) {
         self.dir = dir.rem_euclid(360.0);
     }

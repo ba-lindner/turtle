@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{
-    tokens::{ValType, Value},
-    SymbolTable,
-};
+use crate::tokens::{ValType, Value};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct VarList {
     vars: HashMap<usize, Value>,
 }
@@ -25,16 +22,16 @@ impl VarList {
         self.vars.insert(id, val);
     }
 
-    pub fn dump(&self, symbols: &SymbolTable, global: bool) {
-        for (&id, val) in &self.vars {
-            if global {
-                print!("@");
-            }
-            if let Some((name, _)) = symbols.get_index(id) {
-                println!("{name} = {val}");
-            } else {
-                println!("#{id} = {val}");
-            }
-        }
+    pub fn iter(&self) -> <&VarList as IntoIterator>::IntoIter {
+        (&self).into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a VarList {
+    type Item = (&'a usize, &'a Value);
+    type IntoIter = std::collections::hash_map::Iter<'a, usize, Value>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vars.iter()
     }
 }

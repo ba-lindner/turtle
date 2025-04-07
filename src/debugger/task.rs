@@ -3,7 +3,7 @@ use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
 use parking_lot::Mutex;
 
 use crate::{
-    debugger::{turtle::FuncType, varlist::VarList},
+    debugger::{turtle::{FuncType, StackFrame}, varlist::VarList},
     pos::FilePos,
     prog::PathDef,
     tokens::{Block, Expr, ExprKind, Statement, Value},
@@ -30,7 +30,7 @@ impl Future for TurtleFuture {
     }
 }
 
-pub struct DebugTask<'p, W: Window> {
+pub struct TurtleTask<'p, W: Window> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
     ctx: Rc<GlobalCtx<W>>,
@@ -38,7 +38,7 @@ pub struct DebugTask<'p, W: Window> {
     curr_pos: FilePos,
 }
 
-impl<'p, W: Window> DebugTask<'p, W> {
+impl<'p, W: Window> TurtleTask<'p, W> {
     pub fn new(
         prog: &'p TProgram,
         turtle: Rc<Mutex<Turtle>>,
@@ -63,25 +63,24 @@ impl<'p, W: Window> DebugTask<'p, W> {
         self.exec_path_def(path, args, FuncType::Path(name)).await;
     }
 
+    /// panics if event doesn't exist
     pub async fn execute_event(mut self, kind: EventKind, args: Vec<Value>) {
         let evt = match kind {
             EventKind::Mouse => &self.prog.mouse_event,
             EventKind::Key => &self.prog.key_event,
         };
-        if let Some(evt) = evt {
-            self.exec_path_def(evt, args, FuncType::Event(kind)).await;
-        }
+        self.exec_path_def(evt.as_ref().expect("should be caught earlier"), args, FuncType::Event(kind)).await;
     }
 
     async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
         assert_eq!(path.args.len(), args.len());
         {
             let mut ttl = self.turtle.lock();
-            let (func, vars) = ttl.stack.last_mut().unwrap();
+            let frame = ttl.stack.last_mut().unwrap();
             for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
-                vars.set_var(arg, val);
+                frame.vars.set_var(arg, val);
             }
-            *func = ft;
+            frame.func = ft;
         }
         self.dbg_block(&path.body).await;
     }
@@ -93,6 +92,7 @@ impl<'p, W: Window> DebugTask<'p, W> {
             }
             for stmt in &block.statements {
                 self.curr_pos = stmt.get_pos();
+                self.turtle.lock().stack.last_mut().unwrap().curr_pos = self.curr_pos;
                 // before
                 self.ret(DbgAction::BeforeStmt, self.ctx.debug).await;
                 // execute
@@ -146,7 +146,12 @@ impl<'p, W: Window> DebugTask<'p, W> {
                 for (i, arg) in args.into_iter().enumerate() {
                     vars.set_var(path.args[i].0, arg);
                 }
-                self.turtle.lock().stack.push((FuncType::Path(*id), vars));
+                let frame = StackFrame {
+                    vars,
+                    func: FuncType::Path(*id),
+                    curr_pos: path.body.begin,
+                };
+                self.turtle.lock().stack.push(frame);
                 self.dbg_block(&path.body).await;
                 self.turtle.lock().stack.pop();
             }
@@ -265,7 +270,12 @@ impl<'p, W: Window> DebugTask<'p, W> {
                     for (i, arg) in args.into_iter().enumerate() {
                         vars.set_var(calc.args[i].0, arg);
                     }
-                    self.turtle.lock().stack.push((FuncType::Calc(*id), vars));
+                    let frame = StackFrame {
+                        vars,
+                        func: FuncType::Calc(*id),
+                        curr_pos: calc.body.begin,
+                    };
+                    self.turtle.lock().stack.push(frame);
                     self.dbg_block(&calc.body).await;
                     let res = self.dbg_expr(&calc.ret).await;
                     self.turtle.lock().stack.pop();

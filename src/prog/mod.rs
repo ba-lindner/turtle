@@ -1,7 +1,6 @@
 use crate::{
     debugger::{
-        window::{SdlWindow, Window},
-        DebugRun,
+        interface::Terminal, window::{SdlWindow, Window}, DebugRun
     },
     features::FeatureConf,
     pos::FilePos,
@@ -185,8 +184,8 @@ impl TProgram {
         self.debug_with(args, breakpoints, SdlWindow::new(&self.title("Debugger")));
     }
 
-    pub fn debug_with(&self, args: &[String], breakpoints: Vec<FilePos>, window: impl Window) {
-        DebugRun::new(self, args, window, true, breakpoints).run_debug();
+    pub fn debug_with<'p, W: Window + 'p>(&'p self, args: &[String], breakpoints: Vec<FilePos>, window: W) {
+        DebugRun::new(self, args, window, true, breakpoints).debug_in(Terminal);
     }
 }
 

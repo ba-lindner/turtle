@@ -9,15 +9,15 @@ use parking_lot::Mutex;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
-    tokens::{StmtKind, Value},
+    tokens::{PredefVar, StmtKind, Value, VariableKind},
     TProgram,
 };
 
 use super::{
-    task::DebugTask,
+    task::TurtleTask,
     turtle::{FuncType, Turtle},
     window::Window,
-    DbgAction, EventKind, GlobalCtx, TurtleWaker,
+    DbgAction, DebugErr, EventKind, FrameInfo, GlobalCtx, TurtleWaker, VarDump,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub enum StepResult {
     Finished,
 }
 
-pub struct DebugRunner<'p, W> {
+pub struct TurtleRunner<'p, W> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
     pub finished: bool,
@@ -41,8 +41,8 @@ pub struct DebugRunner<'p, W> {
     fut: Pin<Box<dyn Future<Output = ()> + 'p>>,
 }
 
-impl<'p, W: Window + 'p> DebugRunner<'p, W> {
-    pub fn new(prog: &'p TProgram, ctx: Rc<GlobalCtx<W>>) -> DebugRunner<'p, W> {
+impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
+    pub fn new(prog: &'p TProgram, ctx: Rc<GlobalCtx<W>>) -> TurtleRunner<'p, W> {
         Self::construct(
             prog,
             ctx,
@@ -57,7 +57,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         ctx: Rc<GlobalCtx<W>>,
         kind: EventKind,
         args: Vec<Value>,
-    ) -> DebugRunner<'p, W> {
+    ) -> TurtleRunner<'p, W> {
         Self::construct(
             prog,
             ctx,
@@ -72,11 +72,11 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         ctx: Rc<GlobalCtx<W>>,
         turtle: Turtle,
         start_task: (FuncType, Vec<Value>),
-        f: impl FnOnce(DebugTask<'p, W>) -> Pin<Box<dyn Future<Output = ()> + 'p>>,
+        f: impl FnOnce(TurtleTask<'p, W>) -> Pin<Box<dyn Future<Output = ()> + 'p>>,
     ) -> Self {
         let turtle = Rc::new(Mutex::new(turtle));
         let (tx, rx) = mpsc::channel();
-        let task = DebugTask::new(prog, turtle.clone(), ctx.clone(), tx);
+        let task = TurtleTask::new(prog, turtle.clone(), ctx.clone(), tx);
         Self {
             prog,
             turtle,
@@ -91,7 +91,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         }
     }
 
-    fn split(&self, path: usize, args: Vec<Value>, turtle: Turtle) -> DebugRunner<'p, W> {
+    fn split(&self, path: usize, args: Vec<Value>, turtle: Turtle) -> TurtleRunner<'p, W> {
         Self::construct(
             self.prog,
             self.ctx.clone(),
@@ -101,14 +101,10 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         )
     }
 
-    pub fn poll_splits(&mut self, id: &mut usize) -> Vec<(usize, DebugRunner<'p, W>)> {
+    pub fn poll_splits(&mut self) -> Vec<TurtleRunner<'p, W>> {
         std::mem::take(&mut self.split_queue)
             .into_iter()
-            .map(|(path, args, turtle)| {
-                let ttl_id = *id;
-                *id += 1;
-                (ttl_id, self.split(path, args, *turtle))
-            })
+            .map(|(path, args, turtle)| self.split(path, args, *turtle))
             .collect()
     }
 
@@ -175,7 +171,7 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
                     }
                     // use first kind
                     // all following will be end of control structures
-                    res = res.or(Some(stmt.kind()));
+                    res.get_or_insert(stmt.kind());
                 }
                 DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
@@ -229,19 +225,66 @@ impl<'p, W: Window + 'p> DebugRunner<'p, W> {
         StepResult::Finished
     }
 
-    pub fn dump_vars(&self) {
-        self.turtle.lock().dump_vars(&self.ctx, &self.prog.symbols);
-    }
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //
+    //   debug information
+    //
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn curr_pos(&self) -> (FuncType, FilePos) {
-        (
-            self.turtle
+        let ttl = self.turtle.lock();
+        let frame = ttl.stack.last().expect("should never be empty");
+        (frame.func, frame.curr_pos)
+    }
+
+    pub fn vardump(&self, frame: Option<usize>) -> Result<VarDump, DebugErr> {
+        let mut ttl = self.turtle.lock();
+        let index = frame.unwrap_or(ttl.stack.len() - 1);
+        let locals = &ttl
+            .stack
+            .get(index)
+            .ok_or(DebugErr::FrameNotFound(index))?
+            .vars;
+        let name = |id| {
+            self.prog
+                .symbols
+                .get_index(id)
+                .expect("should always exist")
+                .0
+        };
+        Ok(VarDump {
+            locals: locals
+                .iter()
+                .map(|(&id, val)| (name(id).clone(), val.clone()))
+                .collect(),
+            globals: self
+                .ctx
+                .vars
                 .lock()
-                .stack
-                .last()
-                .expect("should never be empty")
-                .0,
-            self.last_pos,
-        )
+                .iter()
+                .map(|(&id, val)| (format!("@{}", name(id)), val.clone()))
+                .collect(),
+            predef: PredefVar::get_all()
+                .into_iter()
+                .map(|pdv| {
+                    let var = VariableKind::GlobalPreDef(pdv).at(FilePos::default());
+                    (pdv, ttl.get_var(&self.ctx, &var))
+                })
+                .collect(),
+        })
+    }
+
+    pub fn stacktrace(&self) -> Vec<FrameInfo> {
+        let mut res = Vec::new();
+        let ttl = self.turtle.lock();
+        for i in (0..ttl.stack.len()).rev() {
+            let frame = &ttl.stack[i];
+            res.push(FrameInfo {
+                index: i,
+                func: frame.func,
+                pos: frame.curr_pos,
+            })
+        }
+        res
     }
 }

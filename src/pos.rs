@@ -5,8 +5,8 @@ use std::{fmt::Display, num::ParseIntError, str::FromStr};
 /// Used when an error is found while compiling to tell the developer where to fix his code
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct FilePos {
-    line: usize,
-    column: usize,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl FilePos {
