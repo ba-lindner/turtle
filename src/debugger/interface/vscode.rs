@@ -56,6 +56,7 @@ impl VSCode {
         run: &mut Debugger<'p, W>,
         cmd: VSCodeCmd,
     ) -> Result<(), ProgEnd> {
+        let moves = matches!(cmd, VSCodeCmd::StepOver | VSCodeCmd::StepIn | VSCodeCmd::StepOut | VSCodeCmd::Run);
         match cmd {
             VSCodeCmd::StepOver => run.step_over()?,
             VSCodeCmd::StepIn => _ = run.step_single()?,
@@ -106,22 +107,24 @@ impl VSCode {
                 };
             }
         }
-        let curr_pos = run.curr_pos().1;
-        if let Some(id) = run.events().1.into_iter().find_map(|e| match e {
-            DbgEvent::BreakpointHit(bp) => Some(bp),
-            _ => None,
-        }) {
-            let bp = run
-                .list_breakpoints()
-                .into_iter()
-                .find(|bp| bp.id == id)
-                .unwrap();
-            println!(
-                "currently at {}:{} [breakpoint: {}]",
-                curr_pos.line, curr_pos.column, bp.pos.line
-            );
-        } else {
-            println!("currently at {}:{}", curr_pos.line, curr_pos.column);
+        if moves {
+            let curr_pos = run.curr_pos().1;
+            if let Some(id) = run.events().1.into_iter().find_map(|e| match e {
+                DbgEvent::BreakpointHit(bp) => Some(bp),
+                _ => None,
+            }) {
+                let bp = run
+                    .list_breakpoints()
+                    .into_iter()
+                    .find(|bp| bp.id == id)
+                    .unwrap();
+                println!(
+                    "currently at {}:{} [breakpoint: {}]",
+                    curr_pos.line, curr_pos.column, bp.pos.line
+                );
+            } else {
+                println!("currently at {}:{}", curr_pos.line, curr_pos.column);
+            }
         }
         Ok(())
     }
