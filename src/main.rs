@@ -30,7 +30,7 @@ enum TCommand {
         #[arg(short, long)]
         breakpoint: Vec<FilePos>,
         /// select debugging interface
-        #[arg(short, long)]
+        #[arg(short, long, default_value = "terminal")]
         interface: Interf,
         #[command(flatten)]
         opt: RunOpt,
@@ -97,7 +97,7 @@ impl Source {
 #[group()]
 struct RunOpt {
     /// display mechanism
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "sdl")]
     window: Display,
     /// args passed to turtle
     #[arg(last = true)]

@@ -17,7 +17,7 @@
   - [x] view & edit breakpoints
     - [x] enable / disable
     - [x] add / remove
-  - [ ] allow custom i/o for debug commands / output 
+  - [x] allow custom i/o for debug commands / output 
 - [ ] Turtle Webserver
   - [x] add `Window` trait
   - [ ] implement buffered Window
@@ -28,6 +28,16 @@
   - [ ] actually support some features
   - [ ] add ability to choose language
   - [ ] better output configuration
+- [ ] mehr tests
+  - [ ] lexer
+  - [ ] parser
+    - [ ] every statement
+    - [ ] every expression
+    - [ ] types
+    - [ ] multithreading
+    - [ ] eventing
+    - [ ] all errors
+  - [ ] semcheck
 
 ## General
 

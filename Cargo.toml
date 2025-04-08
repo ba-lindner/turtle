@@ -10,7 +10,7 @@ description = "Compiler, Interpreter and Debugger for the turtle language"
 [dependencies]
 indexmap = "2.7"
 rand = "0.9"
-sdl2 = { version = "0.37", features = ["bundled"] }
+sdl2 = { version = "0.37", features = ["bundled", "static-link"] }
 paste = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 parking_lot = "0.12"

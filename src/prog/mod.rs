@@ -167,22 +167,6 @@ impl TProgram {
             path.body.const_fold();
         }
     }
-
-    // pub fn interpret(&self, args: &[String]) {
-    //     self.interpret_with(args, SdlWindow::new(&self.title("Interpreter")));
-    // }
-
-    // pub fn interpret_with(&self, args: &[String], window: impl Window) {
-    //     DebugRun::new(self, args, window, false, Vec::new()).run();
-    // }
-
-    // pub fn debug(&self, args: &[String], breakpoints: Vec<FilePos>) {
-    //     self.debug_with(args, breakpoints, SdlWindow::new(&self.title("Debugger")));
-    // }
-
-    // pub fn debug_with<'p, W: Window + 'p>(&'p self, args: &[String], breakpoints: Vec<FilePos>, window: W) {
-    //     DebugRun::new(self, args, window, true, breakpoints).debug_in(Terminal);
-    // }
 }
 
 /// Path definition in turtle program
