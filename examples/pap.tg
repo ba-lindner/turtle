@@ -1,0 +1,130 @@
+event mouse(x: num, y: num, btn: bool)
+  store false in @waiting
+  clear
+  path draw_full
+  turn right 90
+  jump @sq_len
+  turn left 90
+  jump @conn_len / 2
+  direction 180
+  path circ(@conn_len / 2, 30, 180)
+endevent
+
+path sq
+  direction 0
+  do 4 times
+    walk @sq_len
+    turn right 90
+  done
+endpath
+
+path conn
+  jump @sq_len
+  turn right 90
+  jump @sq_len / 2
+  turn left 90
+  walk @conn_len
+  turn left 90
+  jump @sq_len / 2
+  turn right 90
+endpath
+
+path circ(r: num, n: num, p: num)
+  jump r
+
+  store 180-360/n in beta
+  store 2*(2*@pi*r/2)/n in a
+  store n * p / 360 in max
+
+  turn left 180-beta/2
+  counter x from 0 to max do
+    walk a
+    turn left 180-beta
+  done
+endpath
+
+path draw_full
+  " go to start
+  jump home
+  turn left 90
+  jump @sq_len / 2
+  turn left 90
+  jump 10.5
+  direction 0
+
+  " Lexer
+  mark
+  path sq
+  jump 1.5
+  turn right 90
+  jump 1
+  walk 3
+  turn left 90
+  walk 2
+  jump mark
+  path conn
+  
+  " Parser
+  mark
+  path sq
+  jump 2
+  turn right 90
+  jump 1
+  walk 3
+  jump back 2.25
+  path circ(0.75, 30, 180)
+  jump mark
+  path conn
+
+  " Debugger
+  mark
+  path sq
+  jump 1.5
+  turn right 90
+  jump 1
+  walk 3
+  jump back 1.5
+  path circ(1.5, 30, 180)
+  jump mark
+
+  " Compiler
+  jump back @conn_len
+  mark
+  turn left 45
+  walk @conn_len * sqrt(2)
+  turn left 45
+  jump @sq_len
+  direction 0
+  path sq
+  jump 2.5
+  turn right 90
+  jump 2.5
+  direction 45
+  path circ(1.7, 45, 270)
+  jump mark
+endpath
+
+begin
+  store 5 in @sq_len
+  store 3 in @conn_len
+
+  store true in @waiting
+
+  path draw_full
+
+  " Interpreter
+  turn right 90
+  jump @sq_len
+  turn left 45
+  walk @conn_len * sqrt(2)
+  turn left 45
+  path sq
+  jump 2.5
+  turn right 90
+  jump 1
+  walk 3
+
+  " wait loop
+  while @waiting do wait done
+  stop
+end
