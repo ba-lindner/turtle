@@ -4,9 +4,9 @@ use crate::{
     tokens::EventKind,
 };
 
-use super::DbgInterface;
+use super::CommonInterface;
 
-enum VSCodeCmd {
+pub enum VSCodeCmd {
     StepOver,
     StepIn,
     StepOut,
@@ -20,8 +20,10 @@ enum VSCodeCmd {
 
 pub struct VSCode;
 
-impl VSCode {
-    fn get_command(&self) -> Option<VSCodeCmd> {
+impl CommonInterface for VSCode {
+    type Command = VSCodeCmd;
+
+    fn get_command(&mut self) -> Option<Self::Command> {
         for line in std::io::stdin().lines() {
             let line = line.ok()?;
             match line.as_str() {
@@ -52,9 +54,9 @@ impl VSCode {
     }
 
     fn exec_cmd<'p, W: Window + 'p>(
-        &self,
+        &mut self,
         run: &mut Debugger<'p, W>,
-        cmd: VSCodeCmd,
+        cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
         let moves = matches!(
             cmd,
@@ -130,16 +132,5 @@ impl VSCode {
             }
         }
         Ok(())
-    }
-}
-
-impl DbgInterface for VSCode {
-    fn exec<'p, W: Window + 'p>(&mut self, run: &mut Debugger<'p, W>) -> ProgEnd {
-        while let Some(cmd) = self.get_command() {
-            if let Err(why) = self.exec_cmd(run, cmd) {
-                return why;
-            }
-        }
-        ProgEnd::WindowExited
     }
 }

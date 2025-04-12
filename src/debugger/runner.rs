@@ -316,9 +316,10 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         res.expect("expr should always return value")
     }
 
-    pub fn exec(&mut self, stmt: Statement) {
+    pub fn exec(&mut self, stmt: Statement) -> bool {
         _ = self.cmds.send(DbgCommand::Exec(stmt));
         self.run_cmd();
+        self.finished
     }
 
     fn run_cmd(&mut self) -> Option<Value> {

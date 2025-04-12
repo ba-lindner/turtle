@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use turtle::{
     debugger::{
         config::RunConfig,
-        interface::{Terminal, VSCode},
+        interface::{Shell, Terminal, VSCode},
         window::{SdlWindow, Window},
     },
     features::{Feature, FeatureConf, FeatureState},
@@ -28,6 +28,15 @@ enum TCommand {
         optimized: bool,
         #[command(flatten)]
         opt: RunOpt,
+    },
+    /// Start turtle shell
+    Shell {
+        /// enabled features
+        #[arg(short, long = "feature")]
+        features: Vec<Feature>,
+        /// disabled features
+        #[arg(short = 'F', long)]
+        disabled: Vec<Feature>,
     },
     /// Start debugger
     Debug {
@@ -63,11 +72,11 @@ struct Source {
     /// turtle source file
     file: String,
     /// enabled features
-    #[arg(short = 'f', long = "feature")]
+    #[arg(short, long = "feature")]
     features: Vec<Feature>,
     /// disabled features
-    #[arg(short = 'F', long = "disabled")]
-    disabled_features: Vec<Feature>,
+    #[arg(short = 'F', long)]
+    disabled: Vec<Feature>,
 }
 
 impl Source {
@@ -76,7 +85,7 @@ impl Source {
         for f in &self.features {
             res[*f] = FeatureState::Enabled;
         }
-        for f in &self.disabled_features {
+        for f in &self.disabled {
             res[*f] = FeatureState::Disabled;
         }
         res
@@ -151,6 +160,20 @@ fn main() {
                 prog.optimize();
             }
             opt.config(&prog.title("Interpreter")).exec(&prog);
+        }
+        TCommand::Shell { features, disabled } => {
+            let features = Source {
+                file: String::new(),
+                features,
+                disabled,
+            }
+            .feature_conf();
+            match TProgram::parse("begin end".to_string(), false, features) {
+                Ok(prog) => {
+                    RunConfig::new(&[]).debug_in(Shell).exec(&prog);
+                }
+                Err(why) => eprintln!("{why}"),
+            }
         }
         TCommand::Debug {
             source,

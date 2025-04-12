@@ -59,7 +59,7 @@ const DEBUG_HELP_BP: &str = "subcommands for breakpoint:
   breakpoint enable <id>  - enable breakpoint <id>
   breakpoint disable <id> - disable breakpoint <id>";
 
-fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
+pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
     for word in words {
         if word.starts_with(inp) {
             return word;

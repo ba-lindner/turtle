@@ -7,13 +7,23 @@ use crate::{
 
 use super::{
     commands::{DbgCommand, NoCmdReason},
-    DbgInterface,
+    CommonInterface,
 };
 
 pub struct Terminal;
 
-impl Terminal {
-    fn get_command(&self) -> Option<DbgCommand> {
+impl CommonInterface for Terminal {
+    type Command = DbgCommand;
+
+    fn greeting(&self) -> Option<&str> {
+        Some(concat!(
+            "turtle debugger v",
+            env!("CARGO_PKG_VERSION"),
+            "\nenter 'help' to view available commands"
+        ))
+    }
+
+    fn get_command(&mut self) -> Option<Self::Command> {
         loop {
             print!("> ");
             std::io::stdout().flush().unwrap();
@@ -27,10 +37,10 @@ impl Terminal {
         }
     }
 
-    pub fn exec_cmd<'p, W: Window + 'p>(
-        &self,
+    fn exec_cmd<'p, W: Window + 'p>(
+        &mut self,
         run: &mut Debugger<'p, W>,
-        cmd: DbgCommand,
+        cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
         match cmd {
             DbgCommand::StepSingle(count) => {
@@ -153,18 +163,5 @@ impl Terminal {
             }
         }
         Ok(())
-    }
-}
-
-impl DbgInterface for Terminal {
-    fn exec<'p, W: Window + 'p>(&mut self, run: &mut Debugger<'p, W>) -> ProgEnd {
-        println!("turtle debugger v{}", env!("CARGO_PKG_VERSION"));
-        println!("enter 'help' to view available commands");
-        while let Some(cmd) = self.get_command() {
-            if let Err(why) = self.exec_cmd(run, cmd) {
-                return why;
-            }
-        }
-        ProgEnd::WindowExited
     }
 }

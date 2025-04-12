@@ -364,10 +364,10 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         Ok(self.active().eval(expr, frame))
     }
 
-    pub fn exec_stmt(&mut self, stmt: &str) -> Result<(), DebugErr> {
+    /// returns true if turtle finished
+    pub fn exec_stmt(&mut self, stmt: &str) -> Result<bool, DebugErr> {
         let (stmt, _) = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
-        self.active().exec(stmt.into_inner());
-        Ok(())
+        Ok(self.active().exec(stmt.into_inner()))
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

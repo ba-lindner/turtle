@@ -114,6 +114,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
             if self.ctx.debug {
                 let _ = self.action.send((DbgAction::BlockEntered, block.begin));
             }
+            self.check_cmds().await;
             for stmt in &block.statements {
                 self.curr_pos = stmt.get_pos();
                 self.turtle.lock().stack.last_mut().unwrap().curr_pos = self.curr_pos;
@@ -135,8 +136,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
     }
 
     async fn check_cmds(&mut self) {
-        let cmds: Vec<_> = self.cmds.try_iter().collect();
-        for cmd in cmds {
+        while let Ok(cmd) = self.cmds.try_recv() {
             match cmd {
                 DbgCommand::Eval(expr) => {
                     let res = self.dbg_expr(&expr).await;
