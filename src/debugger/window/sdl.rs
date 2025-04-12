@@ -1,4 +1,8 @@
-use std::{sync::mpsc::{self, Receiver, Sender}, thread, time::Duration};
+use std::{
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+    time::Duration,
+};
 
 use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
 
@@ -23,7 +27,7 @@ struct SdlImpl {
     event_pump: EventPump,
     cmds: Receiver<WindowCmd>,
     events: Sender<WindowEvent>,
-    wait_exit: Option<usize>
+    wait_exit: Option<usize>,
 }
 
 const WIDTH: u32 = 800;
@@ -98,31 +102,27 @@ impl SdlImpl {
     }
 
     fn collect_events(&mut self) {
-        let events = self.event_pump
-            .poll_iter()
-            .flat_map(|evt| match evt {
-                Event::KeyDown {
-                    keycode: Some(kc), ..
-                } => kc
-                    .into_i32()
-                    .try_into()
-                    .ok()
-                    .and_then(char::from_u32)
-                    .map(WindowEvent::KeyPressed),
-                Event::Quit { .. } => {
-                    self.wait_exit.get_or_insert(5);
-                    Some(WindowEvent::WindowExited)
-                }
-                Event::MouseButtonDown {
-                    x, y, mouse_btn, ..
-                } => {
-                    Some(WindowEvent::MouseClicked(
-                        (x as f64, y as f64),
-                        mouse_btn == sdl2::mouse::MouseButton::Left,
-                    ))
-                }
-                _ => None,
-            });
+        let events = self.event_pump.poll_iter().flat_map(|evt| match evt {
+            Event::KeyDown {
+                keycode: Some(kc), ..
+            } => kc
+                .into_i32()
+                .try_into()
+                .ok()
+                .and_then(char::from_u32)
+                .map(WindowEvent::KeyPressed),
+            Event::Quit { .. } => {
+                self.wait_exit.get_or_insert(5);
+                Some(WindowEvent::WindowExited)
+            }
+            Event::MouseButtonDown {
+                x, y, mouse_btn, ..
+            } => Some(WindowEvent::MouseClicked(
+                (x as f64, y as f64),
+                mouse_btn == sdl2::mouse::MouseButton::Left,
+            )),
+            _ => None,
+        });
         for evt in events {
             self.events.send(evt).unwrap();
         }
@@ -164,12 +164,15 @@ impl Window for SdlWindow {
     }
 
     fn events(&mut self) -> Vec<WindowEvent> {
-        self.events.try_iter().map(|mut e| {
-            if let WindowEvent::MouseClicked((x, y), _) = &mut e {
-                *x = (*x as f64 * 2.0 / WIDTH as f64 - 1.0) * self.max_coord.0;
-                *y = (1.0 - *y as f64 * 2.0 / HEIGHT as f64) * self.max_coord.1;
-            }
-            e
-        }).collect()
+        self.events
+            .try_iter()
+            .map(|mut e| {
+                if let WindowEvent::MouseClicked((x, y), _) = &mut e {
+                    *x = (*x * 2.0 / WIDTH as f64 - 1.0) * self.max_coord.0;
+                    *y = (1.0 - *y * 2.0 / HEIGHT as f64) * self.max_coord.1;
+                }
+                e
+            })
+            .collect()
     }
 }

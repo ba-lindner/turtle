@@ -23,9 +23,8 @@ const SHELL_HELP: &str = "available commands:
 
 enum TryParseResult {
     Cmd(ShellCmd),
-    Help,
     Quit,
-    Err,
+    Other,
     Unfinished,
 }
 
@@ -35,30 +34,36 @@ impl Shell {
         run: &mut Debugger<'p, W>,
         inp: &str,
     ) -> TryParseResult {
+        if inp.is_empty() {
+            return TryParseResult::Other;
+        }
         if let Some(cmd) = inp.strip_prefix('/') {
-            match super::commands::extend_str(cmd, &["help", "pos", "quit"]) {
-                "help" | "?" => return TryParseResult::Help,
-                "pos" => return TryParseResult::Cmd(ShellCmd::Pos),
-                "quit" => return TryParseResult::Quit,
+            return match super::commands::extend_str(cmd, &["help", "pos", "quit"]) {
+                "help" | "?" => {
+                    println!("{SHELL_HELP}");
+                    TryParseResult::Other
+                }
+                "pos" => TryParseResult::Cmd(ShellCmd::Pos),
+                "quit" => TryParseResult::Quit,
                 other => {
                     eprintln!("unknown command /{other}");
-                    return TryParseResult::Err;
+                    TryParseResult::Other
                 }
-            }
+            };
         }
         let res = run.prog.with_parser(inp, |p| match p.parse_stm() {
             Err(why) => match *why {
-                ParseError::UnexpectedEnd => return Ok(false),
-                _ => return Err(TurtleError::ParseError(why)),
+                ParseError::UnexpectedEnd => Ok(false),
+                _ => Err(TurtleError::ParseError(why)),
             },
-            Ok(_) => return Ok(true),
+            Ok(_) => Ok(true),
         });
         match res {
             Ok((true, _)) => TryParseResult::Cmd(ShellCmd::Exec(inp.to_string())),
             Ok((false, _)) => TryParseResult::Unfinished,
             Err(why) => {
                 eprintln!("{why}");
-                TryParseResult::Err
+                TryParseResult::Other
             }
         }
     }
@@ -76,12 +81,8 @@ impl Shell {
             cmd += &line;
             match self.try_parse(run, &cmd) {
                 TryParseResult::Cmd(cmd) => return Some(cmd),
-                TryParseResult::Help => {
-                    println!("{SHELL_HELP}");
-                    cmd.clear();
-                }
                 TryParseResult::Quit => return None,
-                TryParseResult::Err => cmd.clear(),
+                TryParseResult::Other => cmd.clear(),
                 TryParseResult::Unfinished => cmd.push(' '),
             }
         }
@@ -105,7 +106,7 @@ impl Shell {
                     vars[&PredefVar::Y].num(),
                     vars[&PredefVar::Dir].num(),
                 );
-                println!("turtle is at {x:.3},{y:.3} and looking in direction {dir:.1}");
+                println!("turtle is at {x:.3}, {y:.3} and looking in direction {dir:.1}");
             }
         }
         Ok(())
