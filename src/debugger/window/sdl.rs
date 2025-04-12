@@ -2,74 +2,9 @@ use std::{sync::mpsc::{self, Receiver, Sender}, thread, time::Duration};
 
 use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
 
-use super::{TColor, TCoord};
+use crate::debugger::{TColor, TCoord};
 
-pub trait Window {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        self.set_max_x(max_x);
-        self.set_max_y(max_y);
-    }
-
-    fn max_coords(&mut self) -> &mut (f64, f64);
-
-    fn get_max_x(&mut self) -> f64 {
-        self.max_coords().0
-    }
-
-    fn get_max_y(&mut self) -> f64 {
-        self.max_coords().1
-    }
-
-    fn set_max_x(&mut self, max_x: f64) {
-        self.max_coords().0 = max_x;
-    }
-
-    fn set_max_y(&mut self, max_y: f64) {
-        self.max_coords().1 = max_y;
-    }
-
-    fn draw(&mut self, _: TCoord, _: TCoord, _: TColor) {}
-    fn clear(&mut self) {}
-
-    fn print(&mut self, _: &str) {}
-
-    fn events(&mut self) -> Vec<WindowEvent> {
-        Vec::new()
-    }
-}
-
-impl Window for Box<dyn Window> {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        (**self).init(max_x, max_y);
-    }
-
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        (**self).max_coords()
-    }
-
-    fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {
-        (**self).draw(from, to, col);
-    }
-
-    fn clear(&mut self) {
-        (**self).clear();
-    }
-
-    fn print(&mut self, msg: &str) {
-        (**self).print(msg);
-    }
-
-    fn events(&mut self) -> Vec<WindowEvent> {
-        (**self).events()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum WindowEvent {
-    WindowExited,
-    KeyPressed(char),
-    MouseClicked(TCoord, bool),
-}
+use super::{Window, WindowEvent};
 
 enum WindowCmd {
     Draw(Color, Point, Point),
@@ -218,20 +153,10 @@ impl Window for SdlWindow {
         let start = self.map_coords(from);
         let end = self.map_coords(to);
         self.cmds.send(WindowCmd::Draw(col, start, end)).unwrap();
-        // canvas.set_draw_color(Color::RGB(
-        //     (col.0 * 2.55) as u8,
-        //     (col.1 * 2.55) as u8,
-        //     (col.2 * 2.55) as u8,
-        // ));
-        // canvas.draw_line(start, end).unwrap();
-        // canvas.present();
     }
 
     fn clear(&mut self) {
         self.cmds.send(WindowCmd::Clear).unwrap();
-        // canvas.set_draw_color(Color::BLACK);
-        // canvas.clear();
-        // canvas.present();
     }
 
     fn print(&mut self, msg: &str) {
@@ -246,11 +171,5 @@ impl Window for SdlWindow {
             }
             e
         }).collect()
-    }
-}
-
-impl Window for (f64, f64) {
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        self
     }
 }
