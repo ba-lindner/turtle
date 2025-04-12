@@ -66,16 +66,23 @@ impl Shell {
     fn get_command<'p, W: Window + 'p>(&self, run: &mut Debugger<'p, W>) -> Option<ShellCmd> {
         let mut cmd = String::new();
         loop {
-            print!("> ");
+            if cmd.is_empty() {
+                print!("> ");
+            } else {
+                print!("  ");
+            }
             std::io::stdout().flush().unwrap();
             let line = std::io::stdin().lines().next()?.ok()?;
             cmd += &line;
             match self.try_parse(run, &cmd) {
                 TryParseResult::Cmd(cmd) => return Some(cmd),
-                TryParseResult::Help => println!("{SHELL_HELP}"),
+                TryParseResult::Help => {
+                    println!("{SHELL_HELP}");
+                    cmd.clear();
+                }
                 TryParseResult::Quit => return None,
                 TryParseResult::Err => cmd.clear(),
-                TryParseResult::Unfinished => {}
+                TryParseResult::Unfinished => cmd.push(' '),
             }
         }
     }
