@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::{
     debugger::{window::Window, DbgEvent, Debugger, ProgEnd},
     tokens::StmtKind,
@@ -13,6 +15,8 @@ pub struct Terminal;
 impl Terminal {
     fn get_command(&self) -> Option<DbgCommand> {
         loop {
+            print!("> ");
+            std::io::stdout().flush().unwrap();
             let line = std::io::stdin().lines().next()?.ok()?;
             match super::commands::parse_command(&line) {
                 Ok(cmd) => return Some(cmd),
@@ -128,6 +132,15 @@ impl Terminal {
                     );
                 }
             }
+            DbgCommand::Evaluate(expr) => match run.eval_expr(None, &expr) {
+                Ok(val) => println!("{val}"),
+                Err(why) => eprintln!("{why}"),
+            },
+            DbgCommand::Execute(stmt) => {
+                if let Err(why) = run.exec_stmt(&stmt) {
+                    eprintln!("{why}");
+                }
+            }
         }
         let (stmt_count, events) = run.events();
         if stmt_count > 0 {
@@ -149,9 +162,9 @@ impl DbgInterface for Terminal {
         println!("enter 'help' to view available commands");
         while let Some(cmd) = self.get_command() {
             if let Err(why) = self.exec_cmd(run, cmd) {
-                return why
+                return why;
             }
         }
-        return ProgEnd::WindowExited;
+        ProgEnd::WindowExited
     }
 }

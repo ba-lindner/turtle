@@ -1,9 +1,16 @@
-use crate::{tokens::{Expr, ExprKind, ValType}, TurtleError};
+use crate::{
+    tokens::{Expr, ExprKind, ValType},
+    TurtleError,
+};
 
 use super::{CheckContext, TypeError, Vars};
 
 impl Expr {
-    pub(super) fn expect_type(&mut self, ty: ValType, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
+    pub(super) fn expect_type(
+        &mut self,
+        ty: ValType,
+        ctx: &mut CheckContext,
+    ) -> Result<Vars, TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
         match &mut self.kind {
             ExprKind::Const(value) => {
@@ -90,7 +97,10 @@ impl Expr {
         }
     }
 
-    pub(super) fn val_type(&mut self, ctx: &mut CheckContext) -> Result<(ValType, Vars), TurtleError> {
+    pub(super) fn val_type(
+        &mut self,
+        ctx: &mut CheckContext,
+    ) -> Result<(ValType, Vars), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
         match &mut self.kind {
             ExprKind::Const(val) => Ok((val.val_type(), Vars::new())),

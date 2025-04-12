@@ -261,7 +261,7 @@ impl<'s, 'f> Parser<'s, 'f> {
         }
     }
 
-    fn parse_expr(&mut self) -> PRes<Expr> {
+    pub fn parse_expr(&mut self) -> PRes<Expr> {
         #[derive(Debug, PartialEq, Clone, Copy)]
         enum NodeKind {
             Start,

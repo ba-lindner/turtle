@@ -23,7 +23,7 @@ impl VarList {
     }
 
     pub fn iter(&self) -> <&VarList as IntoIterator>::IntoIter {
-        (&self).into_iter()
+        self.into_iter()
     }
 }
 

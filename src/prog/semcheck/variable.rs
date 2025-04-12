@@ -1,9 +1,15 @@
-use crate::{tokens::{ValType, Variable, VariableKind}, TurtleError};
+use crate::{
+    tokens::{ValType, Variable, VariableKind},
+    TurtleError,
+};
 
 use super::{CheckContext, TypeError, Vars};
 
 impl Variable {
-    pub(super) fn val_type(&mut self, ctx: &mut CheckContext) -> Result<(ValType, Vars), TurtleError> {
+    pub(super) fn val_type(
+        &mut self,
+        ctx: &mut CheckContext,
+    ) -> Result<(ValType, Vars), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
         match &mut self.kind {
             VariableKind::Local(idx, vt) => {
@@ -30,7 +36,11 @@ impl Variable {
         }
     }
 
-    pub(super) fn expect_type(&mut self, ty: ValType, ctx: &mut CheckContext) -> Result<(), TurtleError> {
+    pub(super) fn expect_type(
+        &mut self,
+        ty: ValType,
+        ctx: &mut CheckContext,
+    ) -> Result<(), TurtleError> {
         let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
         match &mut self.kind {
             VariableKind::Local(idx, vt) => {

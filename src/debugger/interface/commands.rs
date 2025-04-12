@@ -2,7 +2,7 @@ use std::num::ParseIntError;
 
 use crate::pos::{FilePos, FilePosParseErr};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DbgCommand {
     StepSingle(usize),
     StepOver(usize),
@@ -21,6 +21,8 @@ pub enum DbgCommand {
     DeleteBreakpoint(usize),
     EnableBreakpoint(usize, bool),
     Stacktrace,
+    Evaluate(String),
+    Execute(String),
 }
 
 const DEBUG_HELP: &str = "available commands:
@@ -33,6 +35,8 @@ const DEBUG_HELP: &str = "available commands:
   turtle                  - list active turtles
   turtle <id>             - switch active turtle
   stacktrace              - view stacktrace
+  evaluate <expr>         - get value of expression
+  execute <stmt>          - let active turtle execute statement
   help [step|breakpoint]  - show this help / detailed help for subcommand
   quit                    - exit the debugger";
 
@@ -96,7 +100,7 @@ impl<'l> From<CmdError<'l>> for NoCmdReason<'l> {
     }
 }
 
-impl<'l> From<ParseIntError> for NoCmdReason<'l> {
+impl From<ParseIntError> for NoCmdReason<'_> {
     fn from(value: ParseIntError) -> Self {
         CmdError::ParseInt(value).into()
     }
@@ -116,7 +120,7 @@ pub enum CmdError<'l> {
     ParsePos(#[from] FilePosParseErr),
 }
 
-pub fn parse_command<'l>(inp: &'l str) -> Result<DbgCommand, NoCmdReason<'l>> {
+pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
     let mut words = inp.split_whitespace();
     Ok(match_extended!(words.next() => {
         None => return Err(NoCmdReason::Empty),
@@ -131,6 +135,8 @@ pub fn parse_command<'l>(inp: &'l str) -> Result<DbgCommand, NoCmdReason<'l>> {
             None => DbgCommand::ListTurtles,
         },
         "stacktrace" => DbgCommand::Stacktrace,
+        "evaluate" => DbgCommand::Evaluate(words.collect()),
+        "execute" => DbgCommand::Execute(words.collect()),
         "help" => return Err(match_extended!(words.next() => {
             None => NoCmdReason::Help(DEBUG_HELP),
             "step" => NoCmdReason::Help(DEBUG_HELP_STEP),
@@ -154,7 +160,9 @@ fn step_command<'w>(mut words: impl Iterator<Item = &'w str>) -> Result<DbgComma
     }))
 }
 
-fn breakpoint_command<'w>(mut words: impl Iterator<Item = &'w str>) -> Result<DbgCommand, CmdError<'w>> {
+fn breakpoint_command<'w>(
+    mut words: impl Iterator<Item = &'w str>,
+) -> Result<DbgCommand, CmdError<'w>> {
     Ok(match_extended!(words.next() => {
         None => DbgCommand::ListBreakpoints,
         "add" => DbgCommand::AddBreakpoint(words.next().ok_or(CmdError::MissingArg)?.parse()?),

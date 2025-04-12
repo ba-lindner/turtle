@@ -1,4 +1,8 @@
-use crate::{pos::Pos, tokens::{Statement, ValType}, TurtleError};
+use crate::{
+    pos::Pos,
+    tokens::{Statement, ValType},
+    TurtleError,
+};
 
 use super::{CheckContext, TypeError, Vars};
 

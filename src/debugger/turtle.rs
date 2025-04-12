@@ -147,7 +147,7 @@ impl Turtle {
             },
         }
     }
-    
+
     pub fn set_dir(&mut self, dir: f64) {
         self.dir = dir.rem_euclid(360.0);
     }

@@ -56,7 +56,10 @@ impl VSCode {
         run: &mut Debugger<'p, W>,
         cmd: VSCodeCmd,
     ) -> Result<(), ProgEnd> {
-        let moves = matches!(cmd, VSCodeCmd::StepOver | VSCodeCmd::StepIn | VSCodeCmd::StepOut | VSCodeCmd::Run);
+        let moves = matches!(
+            cmd,
+            VSCodeCmd::StepOver | VSCodeCmd::StepIn | VSCodeCmd::StepOut | VSCodeCmd::Run
+        );
         match cmd {
             VSCodeCmd::StepOver => run.step_over()?,
             VSCodeCmd::StepIn => _ = run.step_single()?,
@@ -137,6 +140,6 @@ impl DbgInterface for VSCode {
                 return why;
             }
         }
-        return ProgEnd::WindowExited;
+        ProgEnd::WindowExited
     }
 }

@@ -2,19 +2,19 @@ use std::{
     future::Future,
     pin::Pin,
     rc::Rc,
-    sync::mpsc::{self, Receiver, TryRecvError},
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
 };
 
 use parking_lot::Mutex;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
-    tokens::{PredefVar, StmtKind, Value, VariableKind},
+    tokens::{Expr, PredefVar, Statement, StmtKind, Value, VariableKind},
     TProgram,
 };
 
 use super::{
-    task::TurtleTask,
+    task::{DbgCommand, TurtleTask},
     turtle::{FuncType, Turtle},
     window::Window,
     DbgAction, DebugErr, EventKind, FrameInfo, GlobalCtx, TurtleWaker, VarDump,
@@ -32,8 +32,9 @@ pub struct TurtleRunner<'p, W> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
     pub finished: bool,
-    actions: Receiver<(DbgAction<'p>, FilePos)>,
-    pub narrate: bool,
+    actions: Receiver<(DbgAction, FilePos)>,
+    cmds: Sender<DbgCommand>,
+    narrate: Rc<Mutex<bool>>,
     last_pos: FilePos,
     ctx: Rc<GlobalCtx<W>>,
     split_queue: Vec<(usize, Vec<Value>, Box<Turtle>)>,
@@ -75,14 +76,24 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         f: impl FnOnce(TurtleTask<'p, W>) -> Pin<Box<dyn Future<Output = ()> + 'p>>,
     ) -> Self {
         let turtle = Rc::new(Mutex::new(turtle));
-        let (tx, rx) = mpsc::channel();
-        let task = TurtleTask::new(prog, turtle.clone(), ctx.clone(), tx);
+        let narrate = Rc::new(Mutex::new(false));
+        let (act_tx, act_rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let task = TurtleTask::new(
+            prog,
+            turtle.clone(),
+            ctx.clone(),
+            act_tx,
+            cmd_rx,
+            narrate.clone(),
+        );
         Self {
             prog,
             turtle,
             finished: false,
-            actions: rx,
-            narrate: false,
+            actions: act_rx,
+            cmds: cmd_tx,
+            narrate,
             last_pos: prog.main.begin,
             ctx,
             split_queue: Vec::new(),
@@ -112,13 +123,19 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         self.turtle.lock().stack.len()
     }
 
-    fn get_action(&mut self) -> Result<Pos<DbgAction<'p>>, TryRecvError> {
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //
+    //   execution
+    //
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    fn get_action(&mut self) -> Result<Pos<DbgAction>, TryRecvError> {
         let mut act = None;
         loop {
             match self.actions.try_recv() {
                 Ok((DbgAction::BlockEntered, pos)) => self.last_pos = pos,
-                Ok((DbgAction::AfterStmt(stmt), pos)) => {
-                    act = Some(DbgAction::AfterStmt(stmt).attach_pos(pos));
+                Ok((a @ DbgAction::AfterStmt(_), pos)) => {
+                    act = Some(a.attach_pos(pos));
                     self.last_pos = pos;
                 }
                 Ok((DbgAction::Split(path, args, ttl), _)) => {
@@ -139,9 +156,6 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         let mut cx = std::task::Context::from_waker(&waker);
         while self.fut.as_mut().poll(&mut cx).is_pending() {
             match *self.get_action().unwrap() {
-                DbgAction::AfterStmt(stmt) if self.narrate => {
-                    stmt.narrate(&self.prog.symbols);
-                }
                 DbgAction::Sleep => return,
                 DbgAction::Finished(wait) => {
                     *self.ctx.wait_end.lock() = wait;
@@ -165,13 +179,10 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                 .get_action()
                 .expect("future should only return if some action was sent");
             match *act {
-                DbgAction::AfterStmt(stmt) => {
-                    if self.narrate {
-                        stmt.narrate(&self.prog.symbols);
-                    }
+                DbgAction::AfterStmt(kind) => {
                     // use first kind
                     // all following will be end of control structures
-                    res.get_or_insert(stmt.kind());
+                    res.get_or_insert(kind);
                 }
                 DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
@@ -209,9 +220,6 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                     if let Some(idx) = self.ctx.breakpoint_hit(self.last_pos, act.get_pos()) {
                         return StepResult::Breakpoint(idx);
                     }
-                }
-                DbgAction::AfterStmt(stmt) if self.narrate => {
-                    stmt.narrate(&self.prog.symbols);
                 }
                 DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
@@ -286,5 +294,50 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
             })
         }
         res
+    }
+
+    pub fn get_narrate(&self) -> bool {
+        *self.narrate.lock()
+    }
+
+    pub fn set_narrate(&self, n: bool) {
+        *self.narrate.lock() = n;
+    }
+
+    pub fn eval(&mut self, expr: Expr, frame: Option<usize>) -> Value {
+        _ = self.cmds.send(DbgCommand::Eval(expr));
+        let mut frames = if let Some(frame) = frame {
+            self.turtle.lock().stack.drain(frame + 1..).collect()
+        } else {
+            Vec::new()
+        };
+        let res = self.run_cmd();
+        self.turtle.lock().stack.append(&mut frames);
+        res.expect("expr should always return value")
+    }
+
+    pub fn exec(&mut self, stmt: Statement) {
+        _ = self.cmds.send(DbgCommand::Exec(stmt));
+        self.run_cmd();
+    }
+
+    fn run_cmd(&mut self) -> Option<Value> {
+        let waker = TurtleWaker::get_waker();
+        let mut cx = std::task::Context::from_waker(&waker);
+        while self.fut.as_mut().poll(&mut cx).is_pending() {
+            for (act, _) in self.actions.try_iter() {
+                match act {
+                    DbgAction::Finished(wait) => {
+                        self.finished = true;
+                        *self.ctx.wait_end.lock() = wait;
+                        return None;
+                    }
+                    DbgAction::CmdResult(res) => return res,
+                    _ => {}
+                }
+            }
+        }
+        self.finished = true;
+        None
     }
 }

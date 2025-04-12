@@ -1,9 +1,17 @@
-use std::{future::Future, rc::Rc, sync::mpsc::Sender, task::Poll};
+use std::{
+    future::Future,
+    rc::Rc,
+    sync::mpsc::{Receiver, Sender},
+    task::Poll,
+};
 
 use parking_lot::Mutex;
 
 use crate::{
-    debugger::{turtle::{FuncType, StackFrame}, varlist::VarList},
+    debugger::{
+        turtle::{FuncType, StackFrame},
+        varlist::VarList,
+    },
     pos::FilePos,
     prog::PathDef,
     tokens::{Block, Expr, ExprKind, Statement, Value},
@@ -30,12 +38,19 @@ impl Future for TurtleFuture {
     }
 }
 
+pub enum DbgCommand {
+    Eval(Expr),
+    Exec(Statement),
+}
+
 pub struct TurtleTask<'p, W: Window> {
     prog: &'p TProgram,
     turtle: Rc<Mutex<Turtle>>,
     ctx: Rc<GlobalCtx<W>>,
-    action: Sender<(DbgAction<'p>, FilePos)>,
+    action: Sender<(DbgAction, FilePos)>,
+    cmds: Receiver<DbgCommand>,
     curr_pos: FilePos,
+    narrate: Rc<Mutex<bool>>,
 }
 
 impl<'p, W: Window> TurtleTask<'p, W> {
@@ -43,14 +58,18 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         prog: &'p TProgram,
         turtle: Rc<Mutex<Turtle>>,
         ctx: Rc<GlobalCtx<W>>,
-        action: Sender<(DbgAction<'p>, FilePos)>,
+        action: Sender<(DbgAction, FilePos)>,
+        cmds: Receiver<DbgCommand>,
+        narrate: Rc<Mutex<bool>>,
     ) -> Self {
         Self {
             prog,
             turtle,
             ctx,
             action,
+            cmds,
             curr_pos: FilePos::default(),
+            narrate,
         }
     }
 
@@ -58,21 +77,26 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         self.dbg_block(&self.prog.main).await
     }
 
-    pub async fn execute_path(mut self, name: usize, args: Vec<Value>) {
+    pub async fn execute_path(self, name: usize, args: Vec<Value>) {
         let path = self.prog.get_path(name).expect("path should exist");
         self.exec_path_def(path, args, FuncType::Path(name)).await;
     }
 
     /// panics if event doesn't exist
-    pub async fn execute_event(mut self, kind: EventKind, args: Vec<Value>) {
+    pub async fn execute_event(self, kind: EventKind, args: Vec<Value>) {
         let evt = match kind {
             EventKind::Mouse => &self.prog.mouse_event,
             EventKind::Key => &self.prog.key_event,
         };
-        self.exec_path_def(evt.as_ref().expect("should be caught earlier"), args, FuncType::Event(kind)).await;
+        self.exec_path_def(
+            evt.as_ref().expect("should be caught earlier"),
+            args,
+            FuncType::Event(kind),
+        )
+        .await;
     }
 
-    async fn exec_path_def(&mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
+    pub async fn exec_path_def(mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
         assert_eq!(path.args.len(), args.len());
         {
             let mut ttl = self.turtle.lock();
@@ -85,7 +109,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         self.dbg_block(&path.body).await;
     }
 
-    async fn dbg_block(&mut self, block: &'p Block) {
+    async fn dbg_block(&mut self, block: &Block) {
         let fut = async {
             if self.ctx.debug {
                 let _ = self.action.send((DbgAction::BlockEntered, block.begin));
@@ -95,16 +119,38 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                 self.turtle.lock().stack.last_mut().unwrap().curr_pos = self.curr_pos;
                 // before
                 self.ret(DbgAction::BeforeStmt, self.ctx.debug).await;
+                self.check_cmds().await;
                 // execute
                 self.dbg_stmt(stmt).await;
+                self.check_cmds().await;
                 // after
-                self.ret(DbgAction::AfterStmt(stmt), self.ctx.debug).await;
+                if *self.narrate.lock() {
+                    stmt.narrate(&self.prog.symbols);
+                }
+                self.ret(DbgAction::AfterStmt(stmt.kind()), self.ctx.debug)
+                    .await;
             }
         };
         Box::pin(fut).await
     }
 
-    async fn dbg_stmt(&mut self, stmt: &'p Statement) {
+    async fn check_cmds(&mut self) {
+        let cmds: Vec<_> = self.cmds.try_iter().collect();
+        for cmd in cmds {
+            match cmd {
+                DbgCommand::Eval(expr) => {
+                    let res = self.dbg_expr(&expr).await;
+                    self.ret(DbgAction::CmdResult(Some(res)), true).await;
+                }
+                DbgCommand::Exec(stmt) => {
+                    self.dbg_stmt(&stmt).await;
+                    self.ret(DbgAction::CmdResult(None), true).await;
+                }
+            }
+        }
+    }
+
+    async fn dbg_stmt(&mut self, stmt: &Statement) {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
@@ -241,7 +287,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         }
     }
 
-    async fn dbg_expr(&mut self, expr: &Expr) -> Value {
+    pub(super) async fn dbg_expr(&mut self, expr: &Expr) -> Value {
         let fut = async {
             match &expr.kind {
                 ExprKind::Const(val) => val.clone(),
@@ -294,7 +340,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         res
     }
 
-    async fn ret(&mut self, act: DbgAction<'p>, cond: bool) {
+    async fn ret(&mut self, act: DbgAction, cond: bool) {
         if cond {
             let _ = self.action.send((act, self.curr_pos));
             // yield control

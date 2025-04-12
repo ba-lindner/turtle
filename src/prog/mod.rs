@@ -12,6 +12,7 @@ pub mod lexer;
 mod optimization;
 pub mod parser;
 mod semcheck;
+mod side_effects;
 
 #[derive(Default)]
 struct RawProg {
@@ -166,6 +167,25 @@ impl TProgram {
         for path in &mut self.paths {
             path.body.const_fold();
         }
+        if let Some(evt) = &mut self.key_event {
+            evt.body.const_fold();
+        }
+        if let Some(evt) = &mut self.mouse_event {
+            evt.body.const_fold();
+        }
+    }
+
+    pub fn with_parser<T>(
+        &self,
+        code: &str,
+        f: impl FnOnce(&mut Parser) -> Result<T, TurtleError>,
+    ) -> Result<(T, SymbolTable), TurtleError> {
+        let mut symbols = self.symbols.clone();
+        let mut features = self.features;
+        let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
+        let mut parser = Parser::new(&mut symbols, ltokens, &mut features);
+        let t = f(&mut parser)?;
+        Ok((t, symbols))
     }
 }
 

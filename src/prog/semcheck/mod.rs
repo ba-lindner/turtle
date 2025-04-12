@@ -4,11 +4,11 @@ use crate::{features::FeatureConf, tokens::*, Identified, TurtleError};
 
 use super::{CalcDef, PathDef, TProgram};
 
-mod statements;
 mod expr;
-mod variable;
+mod statements;
 #[cfg(test)]
 mod test;
+mod variable;
 
 struct CheckContext {
     features: FeatureConf,

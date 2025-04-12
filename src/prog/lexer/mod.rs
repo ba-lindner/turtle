@@ -21,7 +21,7 @@ pub type LResult = Pos<Result<LexToken, LexError>>;
 pub struct Lexer<'s, 'f> {
     chars: Vec<char>,
     offset: usize,
-    line: usize,
+    pub line: usize,
     column: usize,
     last_col: usize,
     start: bool,

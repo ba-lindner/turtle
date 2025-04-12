@@ -10,7 +10,7 @@ impl Parser<'_, '_> {
         Ok(Block { begin, statements })
     }
 
-    pub(super) fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
+    pub fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
         let Some(LexToken::Keyword(kw)) = self.lookahead() else {
             return Err(self.unexpected_token(TokenExpectation::Statement));
         };

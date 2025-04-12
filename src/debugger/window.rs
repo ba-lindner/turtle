@@ -79,7 +79,7 @@ enum SdlState {
     Init {
         canvas: Canvas<sdl2::video::Window>,
         event_pump: EventPump,
-    }
+    },
 }
 
 const WIDTH: u32 = 800;

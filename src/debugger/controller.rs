@@ -2,9 +2,21 @@ use std::rc::Rc;
 
 use parking_lot::Mutex;
 
-use crate::{features::{Feature, FeatureState}, pos::FilePos, tokens::{EventKind, StmtKind, Value}, TProgram};
+use crate::{
+    features::{Feature, FeatureState},
+    pos::FilePos,
+    tokens::{EventKind, StmtKind, Value},
+    TProgram,
+};
 
-use super::{interface::DbgInterface, runner::{StepResult, TurtleRunner}, turtle::FuncType, varlist::VarList, window::{Window, WindowEvent}, Breakpoint, DbgEvent, DebugErr, FrameInfo, GlobalCtx, ProgEnd, TurtleInfo, VarDump};
+use super::{
+    interface::DbgInterface,
+    runner::{StepResult, TurtleRunner},
+    turtle::FuncType,
+    varlist::VarList,
+    window::{Window, WindowEvent},
+    Breakpoint, DbgEvent, DebugErr, FrameInfo, GlobalCtx, ProgEnd, TurtleInfo, VarDump,
+};
 
 pub struct DebugController<'p, W> {
     pub prog: &'p TProgram,
@@ -139,7 +151,9 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         if self.turtles.is_empty() {
             return Err(ProgEnd::AllTurtlesFinished);
         }
-        std::thread::sleep(std::time::Duration::from_millis(*self.ctx.delay.lock() as u64));
+        std::thread::sleep(std::time::Duration::from_millis(
+            *self.ctx.delay.lock() as u64
+        ));
         let events = self.ctx.window.lock().events();
         for evt in events {
             match evt {
@@ -205,6 +219,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn run(&mut self) {
+        self.ctx.window.lock().init(20.0, 15.0);
         while !self.turtles.is_empty() {
             self.active().run_sleep();
             match self.sync_turtles() {
@@ -301,8 +316,8 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn toggle_narrate(&mut self) -> bool {
-        let narrator = !self.active().narrate;
-        self.active().narrate = narrator;
+        let narrator = !self.active().get_narrate();
+        self.active().set_narrate(narrator);
         narrator
     }
 
@@ -338,6 +353,20 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
             .find(|bp| bp.id == id)
             .ok_or(DebugErr::BreakpointNotFound(id))?
             .enabled = active;
+        Ok(())
+    }
+
+    pub fn eval_expr(&mut self, frame: Option<usize>, expr: &str) -> Result<Value, DebugErr> {
+        let (expr, _) = self.prog.with_parser(expr, |p| Ok(p.parse_expr()?))?;
+        if expr.side_effects(self.prog, &mut Vec::new()) {
+            return Err(DebugErr::ExprSideEffects);
+        }
+        Ok(self.active().eval(expr, frame))
+    }
+
+    pub fn exec_stmt(&mut self, stmt: &str) -> Result<(), DebugErr> {
+        let (stmt, _) = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
+        self.active().exec(stmt.into_inner());
         Ok(())
     }
 

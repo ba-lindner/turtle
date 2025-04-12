@@ -1,6 +1,13 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use turtle::{
-    debugger::{config::RunConfig, interface::{Terminal, VSCode}, window::{SdlWindow, Window}}, features::{Feature, FeatureConf, FeatureState}, pos::FilePos, TProgram
+    debugger::{
+        config::RunConfig,
+        interface::{Terminal, VSCode},
+        window::{SdlWindow, Window},
+    },
+    features::{Feature, FeatureConf, FeatureState},
+    pos::FilePos,
+    TProgram,
 };
 
 #[derive(Parser)]
@@ -137,7 +144,7 @@ fn main() {
         TCommand::Run {
             source,
             optimized,
-            opt
+            opt,
         } => {
             let mut prog = source.get_prog();
             if optimized {
@@ -161,9 +168,7 @@ fn main() {
                 Interf::VSCode => conf.debug_in(VSCode).exec(&prog),
             }
         }
-        TCommand::Compile {
-            source,
-        } => compile(source.get_prog(), &source.file),
+        TCommand::Compile { source } => compile(source.get_prog(), &source.file),
         TCommand::Check {
             source,
             print_symbols,

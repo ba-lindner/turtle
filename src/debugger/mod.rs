@@ -11,7 +11,8 @@ use window::Window;
 
 use crate::{
     pos::FilePos,
-    tokens::{EventKind, PredefVar, Statement, Value},
+    tokens::{EventKind, PredefVar, StmtKind, Value},
+    TurtleError,
 };
 
 pub use controller::DebugController as Debugger;
@@ -35,13 +36,14 @@ type TColor = (f64, f64, f64);
 const START_COLOR: TColor = (100.0, 100.0, 0.0);
 
 #[derive(Debug, PartialEq, Clone)]
-enum DbgAction<'s> {
+enum DbgAction {
     BlockEntered,
     BeforeStmt,
-    AfterStmt(&'s Statement),
+    AfterStmt(StmtKind),
     Sleep,
     Finished(/*should wait*/ bool),
     Split(usize, Vec<Value>, Box<Turtle>),
+    CmdResult(Option<Value>),
 }
 
 struct TurtleWaker;
@@ -143,4 +145,8 @@ pub enum DebugErr {
     TurtleSwitchNoSync,
     #[error("no frame #{0}")]
     FrameNotFound(usize),
+    #[error("{0}")]
+    TurtleError(#[from] TurtleError),
+    #[error("expression has side effects")]
+    ExprSideEffects,
 }
