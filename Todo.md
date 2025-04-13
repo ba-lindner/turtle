@@ -8,16 +8,19 @@
     - [ ] events w/o types or feature dependency
   - [ ] Parameters
   - [ ] Early Returns
-- [ ] improved debugger
+- [x] improved debugger
   - [x] give feedback on what happened
   - [x] identify & choose active turtle
   - [ ] set variables
-    - [ ] identify "const" calculations
-    - [ ] allow these to be used
+    - [x] identify "const" calculations
   - [x] view & edit breakpoints
     - [x] enable / disable
     - [x] add / remove
-  - [x] allow custom i/o for debug commands / output 
+  - [x] allow custom i/o for debug commands / output
+- [x] Turtle Shell
+  - [x] execute commands
+  - [ ] add paths + calculations
+  - [ ] add events
 - [ ] Turtle Webserver
   - [x] add `Window` trait
   - [ ] implement buffered Window

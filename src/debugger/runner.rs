@@ -1,11 +1,6 @@
 use std::{
-    future::Future,
-    pin::Pin,
-    rc::Rc,
-    sync::mpsc::{self, Receiver, Sender, TryRecvError},
+    cell::{Cell, RefCell}, future::Future, pin::Pin, rc::Rc, sync::mpsc::{self, Receiver, Sender, TryRecvError}
 };
-
-use parking_lot::Mutex;
 
 use crate::{
     pos::{FilePos, Pos, Positionable},
@@ -30,11 +25,11 @@ pub enum StepResult {
 
 pub struct TurtleRunner<'p, W> {
     prog: &'p TProgram,
-    turtle: Rc<Mutex<Turtle>>,
+    turtle: Rc<RefCell<Turtle>>,
     pub finished: bool,
     actions: Receiver<(DbgAction, FilePos)>,
     cmds: Sender<DbgCommand>,
-    narrate: Rc<Mutex<bool>>,
+    narrate: Rc<Cell<bool>>,
     last_pos: FilePos,
     ctx: Rc<GlobalCtx<W>>,
     split_queue: Vec<(usize, Vec<Value>, Box<Turtle>)>,
@@ -75,8 +70,8 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         start_task: (FuncType, Vec<Value>),
         f: impl FnOnce(TurtleTask<'p, W>) -> Pin<Box<dyn Future<Output = ()> + 'p>>,
     ) -> Self {
-        let turtle = Rc::new(Mutex::new(turtle));
-        let narrate = Rc::new(Mutex::new(false));
+        let turtle = Rc::new(RefCell::new(turtle));
+        let narrate = Rc::new(Cell::new(false));
         let (act_tx, act_rx) = mpsc::channel();
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let task = TurtleTask::new(
@@ -120,7 +115,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     }
 
     pub fn stack_size(&self) -> usize {
-        self.turtle.lock().stack.len()
+        self.turtle.borrow().stack.len()
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -158,7 +153,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
             match *self.get_action().unwrap() {
                 DbgAction::Sleep => return,
                 DbgAction::Finished(wait) => {
-                    *self.ctx.wait_end.lock() = wait;
+                    self.ctx.wait_end.set(wait);
                     break;
                 }
                 _ => {}
@@ -186,7 +181,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                 }
                 DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
-                    *self.ctx.wait_end.lock() = wait;
+                    self.ctx.wait_end.set(wait);
                     break;
                 }
                 DbgAction::BeforeStmt => {
@@ -223,7 +218,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                 }
                 DbgAction::Sleep => return StepResult::Sync,
                 DbgAction::Finished(wait) => {
-                    *self.ctx.wait_end.lock() = wait;
+                    self.ctx.wait_end.set(wait);
                     break;
                 }
                 _ => {}
@@ -240,13 +235,13 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn curr_pos(&self) -> (FuncType, FilePos) {
-        let ttl = self.turtle.lock();
+        let ttl = self.turtle.borrow();
         let frame = ttl.stack.last().expect("should never be empty");
         (frame.func, frame.curr_pos)
     }
 
     pub fn vardump(&self, frame: Option<usize>) -> Result<VarDump, DebugErr> {
-        let mut ttl = self.turtle.lock();
+        let mut ttl = self.turtle.borrow_mut();
         let index = frame.unwrap_or(ttl.stack.len() - 1);
         let locals = &ttl
             .stack
@@ -268,7 +263,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
             globals: self
                 .ctx
                 .vars
-                .lock()
+                .borrow()
                 .iter()
                 .map(|(&id, val)| (format!("@{}", name(id)), val.clone()))
                 .collect(),
@@ -284,7 +279,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
 
     pub fn stacktrace(&self) -> Vec<FrameInfo> {
         let mut res = Vec::new();
-        let ttl = self.turtle.lock();
+        let ttl = self.turtle.borrow();
         for i in (0..ttl.stack.len()).rev() {
             let frame = &ttl.stack[i];
             res.push(FrameInfo {
@@ -297,22 +292,22 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     }
 
     pub fn get_narrate(&self) -> bool {
-        *self.narrate.lock()
+        self.narrate.get()
     }
 
     pub fn set_narrate(&self, n: bool) {
-        *self.narrate.lock() = n;
+        self.narrate.set(n);
     }
 
     pub fn eval(&mut self, expr: Expr, frame: Option<usize>) -> Value {
         _ = self.cmds.send(DbgCommand::Eval(expr));
         let mut frames = if let Some(frame) = frame {
-            self.turtle.lock().stack.drain(frame + 1..).collect()
+            self.turtle.borrow_mut().stack.drain(frame + 1..).collect()
         } else {
             Vec::new()
         };
         let res = self.run_cmd();
-        self.turtle.lock().stack.append(&mut frames);
+        self.turtle.borrow_mut().stack.append(&mut frames);
         res.expect("expr should always return value")
     }
 
@@ -330,7 +325,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                 match act {
                     DbgAction::Finished(wait) => {
                         self.finished = true;
-                        *self.ctx.wait_end.lock() = wait;
+                        self.ctx.wait_end.set(wait);
                         return None;
                     }
                     DbgAction::CmdResult(res) => return res,

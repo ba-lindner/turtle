@@ -1,10 +1,7 @@
 use std::{
-    collections::HashMap,
-    sync::Arc,
-    task::{Wake, Waker},
+    cell::{Cell, RefCell}, collections::HashMap, sync::Arc, task::{Wake, Waker}
 };
 
-use parking_lot::Mutex;
 use turtle::{FuncType, Turtle};
 use varlist::VarList;
 use window::Window;
@@ -72,37 +69,37 @@ pub struct Breakpoint {
 }
 
 struct GlobalCtx<W> {
-    vars: Mutex<VarList>,
+    vars: RefCell<VarList>,
     args: [Value; 9],
-    delay: Mutex<f64>,
-    wait_end: Mutex<bool>,
-    window: Mutex<W>,
+    delay: Cell<f64>,
+    wait_end: Cell<bool>,
+    window: RefCell<W>,
     debug: bool,
-    breakpoints: Mutex<Vec<Breakpoint>>,
+    breakpoints: RefCell<Vec<Breakpoint>>,
 }
 
 impl<W: Window> GlobalCtx<W> {
     pub fn get_var(&self, var: PredefVar) -> Value {
         match var {
             PredefVar::Arg(i) => self.args[i - 1].clone(),
-            PredefVar::MaxX => Value::Number(self.window.lock().get_max_x()),
-            PredefVar::MaxY => Value::Number(self.window.lock().get_max_y()),
-            PredefVar::Delay => Value::Number(*self.delay.lock()),
+            PredefVar::MaxX => Value::Number(self.window.borrow_mut().max_coords().0),
+            PredefVar::MaxY => Value::Number(self.window.borrow_mut().max_coords().1),
+            PredefVar::Delay => Value::Number(self.delay.get()),
             _ => unreachable!(),
         }
     }
 
     pub fn set_var(&self, var: PredefVar, val: Value) {
         match var {
-            PredefVar::MaxX => self.window.lock().set_max_x(val.num()),
-            PredefVar::MaxY => self.window.lock().set_max_y(val.num()),
-            PredefVar::Delay => *self.delay.lock() = val.num(),
+            PredefVar::MaxX => self.window.borrow_mut().max_coords().0 = val.num(),
+            PredefVar::MaxY => self.window.borrow_mut().max_coords().1 = val.num(),
+            PredefVar::Delay => self.delay.set(val.num()),
             _ => unreachable!(),
         }
     }
 
     pub fn breakpoint_hit(&self, last_pos: FilePos, curr_pos: FilePos) -> Option<usize> {
-        for bp in &*self.breakpoints.lock() {
+        for bp in &*self.breakpoints.borrow() {
             if bp.enabled && last_pos < bp.pos && bp.pos < curr_pos {
                 return Some(bp.id);
             }

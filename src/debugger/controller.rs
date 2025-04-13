@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use parking_lot::Mutex;
+use std::{cell::{Cell, RefCell}, rc::Rc};
 
 use crate::{
     features::{Feature, FeatureState},
@@ -57,13 +55,13 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
             })
             .collect();
         let ctx = Rc::new(GlobalCtx {
-            vars: Mutex::new(VarList::new()),
+            vars: RefCell::new(VarList::new()),
             args,
-            delay: Mutex::new(1.0),
-            wait_end: Mutex::new(false),
-            window: Mutex::new(window),
+            delay: Cell::new(1.0),
+            wait_end: Cell::new(false),
+            window: RefCell::new(window),
             debug,
-            breakpoints: Mutex::new(breakpoints),
+            breakpoints: RefCell::new(breakpoints),
         });
         let runner = TurtleRunner::new(prog, ctx.clone());
         Self {
@@ -80,7 +78,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn debug_in(&mut self, mut interf: impl DbgInterface) {
-        self.ctx.window.lock().init(20.0, 15.0);
+        self.ctx.window.borrow_mut().init(20.0, 15.0);
         if interf.exec(self) == ProgEnd::AllTurtlesFinished {
             self.finished();
         };
@@ -152,9 +150,9 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
             return Err(ProgEnd::AllTurtlesFinished);
         }
         std::thread::sleep(std::time::Duration::from_millis(
-            *self.ctx.delay.lock() as u64
+            self.ctx.delay.get() as u64
         ));
-        let events = self.ctx.window.lock().events();
+        let events = self.ctx.window.borrow_mut().events();
         for evt in events {
             match evt {
                 WindowEvent::WindowExited => return Err(ProgEnd::WindowExited),
@@ -198,12 +196,12 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn finished(&self) {
-        if *self.ctx.wait_end.lock() {
+        if self.ctx.wait_end.get() {
             println!("halt and catch fire");
             while !self
                 .ctx
                 .window
-                .lock()
+                .borrow_mut()
                 .events()
                 .contains(&WindowEvent::WindowExited)
             {
@@ -219,7 +217,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn run(&mut self) {
-        self.ctx.window.lock().init(20.0, 15.0);
+        self.ctx.window.borrow_mut().init(20.0, 15.0);
         while !self.turtles.is_empty() {
             self.active().run_sleep();
             match self.sync_turtles() {
@@ -333,7 +331,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     pub fn add_breakpoint(&mut self, pos: FilePos) -> usize {
         let id = self.breakpoint_id;
         self.breakpoint_id += 1;
-        self.ctx.breakpoints.lock().push(Breakpoint {
+        self.ctx.breakpoints.borrow_mut().push(Breakpoint {
             id,
             enabled: true,
             pos,
@@ -342,13 +340,13 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn delete_breakpoint(&mut self, id: usize) {
-        self.ctx.breakpoints.lock().retain(|bp| bp.id != id);
+        self.ctx.breakpoints.borrow_mut().retain(|bp| bp.id != id);
     }
 
     pub fn enable_breakpoint(&mut self, id: usize, active: bool) -> Result<(), DebugErr> {
         self.ctx
             .breakpoints
-            .lock()
+            .borrow_mut()
             .iter_mut()
             .find(|bp| bp.id == id)
             .ok_or(DebugErr::BreakpointNotFound(id))?
@@ -405,7 +403,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn list_breakpoints(&self) -> Vec<Breakpoint> {
-        self.ctx.breakpoints.lock().clone()
+        self.ctx.breakpoints.borrow().clone()
     }
 
     pub fn events(&mut self) -> (usize, Vec<DbgEvent>) {

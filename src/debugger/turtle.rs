@@ -90,7 +90,7 @@ impl Turtle {
 
     fn move_to(&mut self, ctx: &GlobalCtx<impl Window>, to: (f64, f64), draw: bool) {
         if draw {
-            ctx.window.lock().draw(self.pos, to, self.col);
+            ctx.window.borrow_mut().draw(self.pos, to, self.col);
         }
         self.pos = to;
     }
@@ -114,7 +114,7 @@ impl Turtle {
                 .vars
                 .get_var(*id, *ty)
                 .clone(),
-            VariableKind::Global(id, ty) => ctx.vars.lock().get_var(*id, *ty).clone(),
+            VariableKind::Global(id, ty) => ctx.vars.borrow_mut().get_var(*id, *ty).clone(),
             VariableKind::GlobalPreDef(pdv) => Value::Number(match pdv {
                 PredefVar::Dir => self.dir,
                 PredefVar::Dist => (self.pos.0 * self.pos.0 + self.pos.1 * self.pos.1).sqrt(),
@@ -132,7 +132,7 @@ impl Turtle {
     pub fn set_var(&mut self, ctx: &GlobalCtx<impl Window>, var: &Variable, val: Value) {
         match &var.kind {
             VariableKind::Local(id, _) => self.stack.last_mut().unwrap().vars.set_var(*id, val),
-            VariableKind::Global(id, _) => ctx.vars.lock().set_var(*id, val),
+            VariableKind::Global(id, _) => ctx.vars.borrow_mut().set_var(*id, val),
             VariableKind::GlobalPreDef(pdv) => match pdv {
                 PredefVar::Red => {
                     self.col.0 = val.num();

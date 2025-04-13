@@ -1,11 +1,6 @@
 use std::{
-    future::Future,
-    rc::Rc,
-    sync::mpsc::{Receiver, Sender},
-    task::Poll,
+    cell::{Cell, RefCell}, future::Future, rc::Rc, sync::mpsc::{Receiver, Sender}, task::Poll
 };
-
-use parking_lot::Mutex;
 
 use crate::{
     debugger::{
@@ -45,22 +40,22 @@ pub enum DbgCommand {
 
 pub struct TurtleTask<'p, W: Window> {
     prog: &'p TProgram,
-    turtle: Rc<Mutex<Turtle>>,
+    turtle: Rc<RefCell<Turtle>>,
     ctx: Rc<GlobalCtx<W>>,
     action: Sender<(DbgAction, FilePos)>,
     cmds: Receiver<DbgCommand>,
     curr_pos: FilePos,
-    narrate: Rc<Mutex<bool>>,
+    narrate: Rc<Cell<bool>>,
 }
 
 impl<'p, W: Window> TurtleTask<'p, W> {
     pub fn new(
         prog: &'p TProgram,
-        turtle: Rc<Mutex<Turtle>>,
+        turtle: Rc<RefCell<Turtle>>,
         ctx: Rc<GlobalCtx<W>>,
         action: Sender<(DbgAction, FilePos)>,
         cmds: Receiver<DbgCommand>,
-        narrate: Rc<Mutex<bool>>,
+        narrate: Rc<Cell<bool>>,
     ) -> Self {
         Self {
             prog,
@@ -99,7 +94,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
     pub async fn exec_path_def(mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
         assert_eq!(path.args.len(), args.len());
         {
-            let mut ttl = self.turtle.lock();
+            let mut ttl = self.turtle.borrow_mut();
             let frame = ttl.stack.last_mut().unwrap();
             for (&(arg, _), val) in path.args.iter().zip(args.into_iter()) {
                 frame.vars.set_var(arg, val);
@@ -117,7 +112,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
             self.check_cmds().await;
             for stmt in &block.statements {
                 self.curr_pos = stmt.get_pos();
-                self.turtle.lock().stack.last_mut().unwrap().curr_pos = self.curr_pos;
+                self.turtle.borrow_mut().stack.last_mut().unwrap().curr_pos = self.curr_pos;
                 // before
                 self.ret(DbgAction::BeforeStmt, self.ctx.debug).await;
                 self.check_cmds().await;
@@ -125,7 +120,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                 self.dbg_stmt(stmt).await;
                 self.check_cmds().await;
                 // after
-                if *self.narrate.lock() {
+                if self.narrate.get() {
                     stmt.narrate(&self.prog.symbols);
                 }
                 self.ret(DbgAction::AfterStmt(stmt.kind()), self.ctx.debug)
@@ -155,31 +150,31 @@ impl<'p, W: Window> TurtleTask<'p, W> {
             Statement::MoveDist { dist, draw, back } => {
                 let dist = self.dbg_expr(dist).await;
                 self.turtle
-                    .lock()
+                    .borrow_mut()
                     .move_dist(&self.ctx, dist.num(), *back, *draw);
                 self.ret(DbgAction::Sleep, *draw).await;
             }
             Statement::MoveHome(draw) => {
-                self.turtle.lock().move_home(&self.ctx, *draw);
+                self.turtle.borrow_mut().move_home(&self.ctx, *draw);
                 self.ret(DbgAction::Sleep, *draw).await;
             }
             Statement::Turn { left, by } => {
                 let angle = self.dbg_expr(by).await.num();
-                let new_dir = self.turtle.lock().dir + if *left { angle } else { -angle };
-                self.turtle.lock().set_dir(new_dir);
+                let new_dir = self.turtle.borrow().dir + if *left { angle } else { -angle };
+                self.turtle.borrow_mut().set_dir(new_dir);
             }
             Statement::Direction(expr) => {
                 let new_dir = self.dbg_expr(expr).await;
-                self.turtle.lock().set_dir(new_dir.num());
+                self.turtle.borrow_mut().set_dir(new_dir.num());
             }
             Statement::Color(ex1, ex2, ex3) => {
                 let r = self.dbg_expr(ex1).await.num();
                 let g = self.dbg_expr(ex2).await.num();
                 let b = self.dbg_expr(ex3).await.num();
-                self.turtle.lock().set_col(r, g, b);
+                self.turtle.borrow_mut().set_col(r, g, b);
             }
             Statement::Clear => {
-                self.ctx.window.lock().clear();
+                self.ctx.window.borrow_mut().clear();
                 self.ret(DbgAction::Sleep, true).await;
             }
             Statement::Stop => self.ret(DbgAction::Finished(true), true).await,
@@ -197,34 +192,34 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                     func: FuncType::Path(*id),
                     curr_pos: path.body.begin,
                 };
-                self.turtle.lock().stack.push(frame);
+                self.turtle.borrow_mut().stack.push(frame);
                 self.dbg_block(&path.body).await;
-                self.turtle.lock().stack.pop();
+                self.turtle.borrow_mut().stack.pop();
             }
             Statement::Store(expr, var) => {
                 let val = self.dbg_expr(expr).await;
-                self.turtle.lock().set_var(&self.ctx, var, val);
+                self.turtle.borrow_mut().set_var(&self.ctx, var, val);
             }
             Statement::Calc { var, val, op } => {
-                let lhs = self.turtle.lock().get_var(&self.ctx, var);
+                let lhs = self.turtle.borrow_mut().get_var(&self.ctx, var);
                 let rhs = self.dbg_expr(val).await;
                 self.turtle
-                    .lock()
+                    .borrow_mut()
                     .set_var(&self.ctx, var, op.eval(&lhs, &rhs));
             }
-            Statement::Mark => self.turtle.lock().new_mark(),
+            Statement::Mark => self.turtle.borrow_mut().new_mark(),
             Statement::MoveMark(draw) => {
-                self.turtle.lock().move_mark(&self.ctx, *draw);
+                self.turtle.borrow_mut().move_mark(&self.ctx, *draw);
                 self.ret(DbgAction::Sleep, *draw).await;
             }
             Statement::Print(expr) => {
                 let msg = self.dbg_expr(expr).await.string();
-                self.ctx.window.lock().print(&msg);
+                self.ctx.window.borrow_mut().print(&msg);
             }
             Statement::Split(id, args) => {
                 let args = self.dbg_args(args).await;
                 let _ = self.action.send((
-                    DbgAction::Split(*id, args, Box::new(self.turtle.lock().split())),
+                    DbgAction::Split(*id, args, Box::new(self.turtle.borrow().split())),
                     self.curr_pos,
                 ));
             }
@@ -263,13 +258,13 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                         None => 1.0,
                     };
                 self.turtle
-                    .lock()
+                    .borrow_mut()
                     .set_var(&self.ctx, counter, Value::Number(init));
-                while *up != (self.turtle.lock().get_var(&self.ctx, counter).num() >= end) {
+                while *up != (self.turtle.borrow_mut().get_var(&self.ctx, counter).num() >= end) {
                     self.dbg_block(body).await;
-                    let next_val = self.turtle.lock().get_var(&self.ctx, counter).num() + step;
+                    let next_val = self.turtle.borrow_mut().get_var(&self.ctx, counter).num() + step;
                     self.turtle
-                        .lock()
+                        .borrow_mut()
                         .set_var(&self.ctx, counter, Value::Number(next_val));
                 }
             }
@@ -291,7 +286,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
         let fut = async {
             match &expr.kind {
                 ExprKind::Const(val) => val.clone(),
-                ExprKind::Variable(var) => self.turtle.lock().get_var(&self.ctx, var),
+                ExprKind::Variable(var) => self.turtle.borrow_mut().get_var(&self.ctx, var),
                 ExprKind::BiOperation(lhs, op, rhs) => {
                     let lhs = self.dbg_expr(lhs).await;
                     let rhs = self.dbg_expr(rhs).await;
@@ -321,10 +316,10 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                         func: FuncType::Calc(*id),
                         curr_pos: calc.body.begin,
                     };
-                    self.turtle.lock().stack.push(frame);
+                    self.turtle.borrow_mut().stack.push(frame);
                     self.dbg_block(&calc.body).await;
                     let res = self.dbg_expr(&calc.ret).await;
-                    self.turtle.lock().stack.pop();
+                    self.turtle.borrow_mut().stack.pop();
                     res
                 }
             }
@@ -342,6 +337,9 @@ impl<'p, W: Window> TurtleTask<'p, W> {
 
     async fn ret(&mut self, act: DbgAction, cond: bool) {
         if cond {
+            if let DbgAction::Finished(wait) = act {
+                self.ctx.wait_end.set(wait);
+            }
             let _ = self.action.send((act, self.curr_pos));
             // yield control
             TurtleFuture(false).await;
