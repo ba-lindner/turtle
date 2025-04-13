@@ -1,5 +1,9 @@
 use std::{
-    cell::{Cell, RefCell}, future::Future, rc::Rc, sync::mpsc::{Receiver, Sender}, task::Poll
+    cell::{Cell, RefCell},
+    future::Future,
+    rc::Rc,
+    sync::mpsc::{Receiver, Sender},
+    task::Poll,
 };
 
 use crate::{
@@ -74,21 +78,14 @@ impl<'p, W: Window> TurtleTask<'p, W> {
 
     pub async fn execute_path(self, name: usize, args: Vec<Value>) {
         let path = self.prog.get_path(name).expect("path should exist");
-        self.exec_path_def(path, args, FuncType::Path(name)).await;
+        self.exec_path_def(&path, args, FuncType::Path(name)).await;
     }
 
     /// panics if event doesn't exist
     pub async fn execute_event(self, kind: EventKind, args: Vec<Value>) {
-        let evt = match kind {
-            EventKind::Mouse => &self.prog.mouse_event,
-            EventKind::Key => &self.prog.key_event,
-        };
-        self.exec_path_def(
-            evt.as_ref().expect("should be caught earlier"),
-            args,
-            FuncType::Event(kind),
-        )
-        .await;
+        if let Some(evt) = self.prog.get_event(kind) {
+            self.exec_path_def(&evt, args, FuncType::Event(kind)).await;
+        }
     }
 
     pub async fn exec_path_def(mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
@@ -262,7 +259,8 @@ impl<'p, W: Window> TurtleTask<'p, W> {
                     .set_var(&self.ctx, counter, Value::Number(init));
                 while *up != (self.turtle.borrow_mut().get_var(&self.ctx, counter).num() >= end) {
                     self.dbg_block(body).await;
-                    let next_val = self.turtle.borrow_mut().get_var(&self.ctx, counter).num() + step;
+                    let next_val =
+                        self.turtle.borrow_mut().get_var(&self.ctx, counter).num() + step;
                     self.turtle
                         .borrow_mut()
                         .set_var(&self.ctx, counter, Value::Number(next_val));

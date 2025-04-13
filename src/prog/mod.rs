@@ -1,3 +1,8 @@
+use std::{
+    cell::{Ref, RefCell},
+    ops::Deref,
+};
+
 use crate::{
     features::FeatureConf,
     tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType},
@@ -64,7 +69,14 @@ impl RawProg {
             main,
             key_event: self.key_event,
             mouse_event: self.mouse_event,
-            symbols,
+            symbols: symbols.clone(),
+            extensions: Extensions {
+                symbols: RefCell::new(symbols),
+                paths: RefCell::new(Vec::new()),
+                calcs: RefCell::new(Vec::new()),
+                key_event: RefCell::new(None),
+                mouse_event: RefCell::new(None),
+            },
         })
     }
 }
@@ -77,9 +89,10 @@ pub struct TProgram {
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
     pub main: Block,
-    pub key_event: Option<PathDef>,
-    pub mouse_event: Option<PathDef>,
+    key_event: Option<PathDef>,
+    mouse_event: Option<PathDef>,
     pub symbols: SymbolTable,
+    extensions: Extensions,
 }
 
 impl TProgram {
@@ -137,18 +150,44 @@ impl TProgram {
         Ok(())
     }
 
-    pub(crate) fn get_path(&self, name: usize) -> Result<&PathDef, TurtleError> {
-        self.paths
-            .iter()
-            .find(|path| path.name == name)
-            .ok_or(TurtleError::MissingDefinition(name))
+    pub(crate) fn get_path(&self, name: usize) -> Result<MaybeRef<'_, PathDef>, TurtleError> {
+        let find = |p: &&PathDef| p.name == name;
+        let ext = self.extensions.paths.borrow();
+        if let Ok(path) = Ref::filter_map(ext, |ps| ps.iter().find(find)) {
+            return Ok(MaybeRef::Cell(path));
+        }
+        let def = self.paths.iter().find(find);
+        if let Some(path) = def {
+            return Ok(MaybeRef::Ref(path));
+        }
+        Err(TurtleError::MissingDefinition(name))
     }
 
-    pub(crate) fn get_calc(&self, name: usize) -> Result<&CalcDef, TurtleError> {
-        self.calcs
-            .iter()
-            .find(|calc| calc.name == name)
-            .ok_or(TurtleError::MissingDefinition(name))
+    pub(crate) fn get_calc(&self, name: usize) -> Result<MaybeRef<'_, CalcDef>, TurtleError> {
+        let find = |c: &&CalcDef| c.name == name;
+        let ext = self.extensions.calcs.borrow();
+        if let Ok(calc) = Ref::filter_map(ext, |cs| cs.iter().find(find)) {
+            return Ok(MaybeRef::Cell(calc));
+        }
+        let def = self.calcs.iter().find(find);
+        if let Some(path) = def {
+            return Ok(MaybeRef::Ref(path));
+        }
+        Err(TurtleError::MissingDefinition(name))
+    }
+
+    pub(crate) fn get_event(&self, kind: EventKind) -> Option<MaybeRef<'_, PathDef>> {
+        let (ext, default) = match kind {
+            EventKind::Mouse => (&self.extensions.mouse_event, &self.mouse_event),
+            EventKind::Key => (&self.extensions.key_event, &self.key_event),
+        };
+        if let Ok(evt) = Ref::filter_map(ext.borrow(), |e| e.as_ref()) {
+            Some(MaybeRef::Cell(evt))
+        } else if let Some(evt) = default {
+            Some(MaybeRef::Ref(evt))
+        } else {
+            None
+        }
     }
 
     pub fn title(&self, kind: &str) -> String {
@@ -179,13 +218,28 @@ impl TProgram {
         &self,
         code: &str,
         f: impl FnOnce(&mut Parser) -> Result<T, TurtleError>,
-    ) -> Result<(T, SymbolTable), TurtleError> {
-        let mut symbols = self.symbols.clone();
+    ) -> Result<T, TurtleError> {
+        let mut symbols = self.extensions.symbols.borrow_mut();
         let mut features = self.features;
         let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
         let mut parser = Parser::new(&mut symbols, ltokens, &mut features);
-        let t = f(&mut parser)?;
-        Ok((t, symbols))
+        f(&mut parser)
+    }
+}
+
+pub enum MaybeRef<'r, T> {
+    Cell(std::cell::Ref<'r, T>),
+    Ref(&'r T),
+}
+
+impl<'r, T> Deref for MaybeRef<'r, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            MaybeRef::Cell(r) => r,
+            MaybeRef::Ref(r) => r,
+        }
     }
 }
 
@@ -205,4 +259,13 @@ pub struct CalcDef {
     pub ret_ty: ValType,
     pub body: Block,
     pub ret: Expr,
+}
+
+#[derive(Debug)]
+pub struct Extensions {
+    symbols: RefCell<SymbolTable>,
+    paths: RefCell<Vec<PathDef>>,
+    calcs: RefCell<Vec<CalcDef>>,
+    key_event: RefCell<Option<PathDef>>,
+    mouse_event: RefCell<Option<PathDef>>,
 }

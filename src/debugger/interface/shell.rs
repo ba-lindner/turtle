@@ -59,8 +59,8 @@ impl Shell {
             Ok(_) => Ok(true),
         });
         match res {
-            Ok((true, _)) => TryParseResult::Cmd(ShellCmd::Exec(inp.to_string())),
-            Ok((false, _)) => TryParseResult::Unfinished,
+            Ok(true) => TryParseResult::Cmd(ShellCmd::Exec(inp.to_string())),
+            Ok(false) => TryParseResult::Unfinished,
             Err(why) => {
                 eprintln!("{why}");
                 TryParseResult::Other

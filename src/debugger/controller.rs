@@ -1,4 +1,7 @@
-use std::{cell::{Cell, RefCell}, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use crate::{
     features::{Feature, FeatureState},
@@ -149,37 +152,36 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         if self.turtles.is_empty() {
             return Err(ProgEnd::AllTurtlesFinished);
         }
-        std::thread::sleep(std::time::Duration::from_millis(
-            self.ctx.delay.get() as u64
-        ));
-        let events = self.ctx.window.borrow_mut().events();
-        for evt in events {
-            match evt {
-                WindowEvent::WindowExited => return Err(ProgEnd::WindowExited),
+        std::thread::sleep(std::time::Duration::from_millis(self.ctx.delay.get() as u64));
+        let events = self
+            .ctx
+            .window
+            .borrow_mut()
+            .events()
+            .into_iter()
+            .map(|evt| match evt {
+                WindowEvent::WindowExited => Err(ProgEnd::WindowExited),
                 WindowEvent::KeyPressed(c) => {
-                    if self.prog.key_event.is_some() {
-                        self.add_turtle(TurtleRunner::for_event(
-                            self.prog,
-                            self.ctx.clone(),
-                            EventKind::Key,
-                            vec![Value::String(c.to_string())],
-                        ));
-                    }
+                    Ok((EventKind::Key, vec![Value::String(c.to_string())]))
                 }
-                WindowEvent::MouseClicked(coord, btn) => {
-                    if self.prog.mouse_event.is_some() {
-                        self.add_turtle(TurtleRunner::for_event(
-                            self.prog,
-                            self.ctx.clone(),
-                            EventKind::Mouse,
-                            vec![
-                                Value::Number(coord.0),
-                                Value::Number(coord.1),
-                                Value::Boolean(btn),
-                            ],
-                        ));
-                    }
-                }
+                WindowEvent::MouseClicked(coord, btn) => Ok((
+                    EventKind::Mouse,
+                    vec![
+                        Value::Number(coord.0),
+                        Value::Number(coord.1),
+                        Value::Boolean(btn),
+                    ],
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (kind, args) in events {
+            if self.prog.get_event(kind).is_some() {
+                self.add_turtle(TurtleRunner::for_event(
+                    self.prog,
+                    self.ctx.clone(),
+                    kind,
+                    args,
+                ));
             }
         }
         self.is_sync = true;
@@ -355,7 +357,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn eval_expr(&mut self, frame: Option<usize>, expr: &str) -> Result<Value, DebugErr> {
-        let (expr, _) = self.prog.with_parser(expr, |p| Ok(p.parse_expr()?))?;
+        let expr = self.prog.with_parser(expr, |p| Ok(p.parse_expr()?))?;
         if expr.side_effects(self.prog, &mut Vec::new()) {
             return Err(DebugErr::ExprSideEffects);
         }
@@ -364,7 +366,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
 
     /// returns true if turtle finished
     pub fn exec_stmt(&mut self, stmt: &str) -> Result<bool, DebugErr> {
-        let (stmt, _) = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
+        let stmt = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
         Ok(self.active().exec(stmt.into_inner()))
     }
 
