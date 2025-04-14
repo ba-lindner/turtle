@@ -1,4 +1,4 @@
-event mouse(x: num, y: num, btn: bool)
+event mouse(x: num, y: num)
   store x in @target_x
   store y in @target_y
 endevent

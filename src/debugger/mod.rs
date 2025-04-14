@@ -1,8 +1,11 @@
 use std::{
-    cell::{Cell, RefCell}, collections::HashMap, sync::Arc, task::{Wake, Waker}
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    sync::Arc,
+    task::{Wake, Waker},
 };
 
-use turtle::{FuncType, Turtle};
+use turtle::Turtle;
 use varlist::VarList;
 use window::Window;
 
@@ -13,6 +16,7 @@ use crate::{
 };
 
 pub use controller::DebugController as Debugger;
+pub use turtle::FuncType;
 
 pub mod config;
 mod controller;
@@ -146,4 +150,10 @@ pub enum DebugErr {
     TurtleError(#[from] TurtleError),
     #[error("expression has side effects")]
     ExprSideEffects,
+    #[error("cannot modify main block")]
+    MainBlock,
+    #[error(
+        "cannot replace definition for {0} as another already exists with different arguments"
+    )]
+    IncompatibleArgs(FuncType),
 }

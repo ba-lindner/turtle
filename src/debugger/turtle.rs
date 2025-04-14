@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::{f64::consts::PI, fmt::Display};
 
 use crate::{
     pos::FilePos,
@@ -33,6 +33,17 @@ impl FuncType {
             FuncType::Main => "main".to_string(),
             FuncType::Path(id) | FuncType::Calc(id) => symbols.get_index(*id).unwrap().0.clone(),
             FuncType::Event(kind) => kind.to_string(),
+        }
+    }
+}
+
+impl Display for FuncType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FuncType::Main => write!(f, "main block"),
+            FuncType::Path(id) => write!(f, "path #{id}"),
+            FuncType::Calc(id) => write!(f, "calculation #{id}"),
+            FuncType::Event(kind) => write!(f, "{kind} event handler"),
         }
     }
 }

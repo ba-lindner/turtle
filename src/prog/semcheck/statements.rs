@@ -1,13 +1,13 @@
 use crate::{
     pos::Pos,
-    tokens::{Statement, ValType},
+    tokens::{Statement, ValType, VariableKind},
     TurtleError,
 };
 
 use super::{CheckContext, TypeError, Vars};
 
 impl Pos<Statement> {
-    pub(super) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
+    pub(crate) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
         let pos = self.get_pos();
         let e_map = |e: TypeError| TurtleError::TypeError(e, pos);
         match &mut **self {
@@ -110,6 +110,67 @@ impl Pos<Statement> {
                     .unwrap_or(Ok(Vars::new()))?;
                 let b = body.semantic_check(ctx)?;
                 Ok(f & t & s & b)
+            }
+        }
+    }
+
+    pub(crate) fn collect_variables(&self) -> Vec<VariableKind> {
+        match &**self {
+            Statement::MoveDist { dist: expr, .. }
+            | Statement::Turn { by: expr, .. }
+            | Statement::Direction(expr)
+            | Statement::Print(expr) => expr.collect_variables(),
+            Statement::MoveHome(_)
+            | Statement::Clear
+            | Statement::Stop
+            | Statement::Finish
+            | Statement::Mark
+            | Statement::MoveMark(_)
+            | Statement::Wait => Vec::new(),
+            Statement::Color(r, g, b) => {
+                let mut res = r.collect_variables();
+                res.append(&mut g.collect_variables());
+                res.append(&mut b.collect_variables());
+                res
+            }
+            Statement::PathCall(_, exprs) | Statement::Split(_, exprs) => {
+                exprs.iter().flat_map(|e| e.collect_variables()).collect()
+            }
+            Statement::Store(val, var) | Statement::Calc { var, val, .. } => {
+                let mut res = val.collect_variables();
+                res.push(var.kind);
+                res
+            }
+            Statement::IfBranch(expr, block)
+            | Statement::DoLoop(expr, block)
+            | Statement::WhileLoop(expr, block)
+            | Statement::RepeatLoop(expr, block) => {
+                let mut res = block.collect_variables();
+                res.append(&mut expr.collect_variables());
+                res
+            }
+            Statement::IfElseBranch(expr, if_block, else_block) => {
+                let mut res = if_block.collect_variables();
+                res.append(&mut else_block.collect_variables());
+                res.append(&mut expr.collect_variables());
+                res
+            }
+            Statement::CounterLoop {
+                counter,
+                from,
+                to,
+                step,
+                body,
+                ..
+            } => {
+                let mut res = body.collect_variables();
+                res.push(counter.kind);
+                res.append(&mut from.collect_variables());
+                res.append(&mut to.collect_variables());
+                if let Some(step) = step {
+                    res.append(&mut step.collect_variables());
+                };
+                res
             }
         }
     }

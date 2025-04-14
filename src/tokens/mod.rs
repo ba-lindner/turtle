@@ -80,7 +80,7 @@ pub struct Variable {
     pub kind: VariableKind,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum VariableKind {
     Local(usize, ValType),
     Global(usize, ValType),

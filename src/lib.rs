@@ -1,5 +1,6 @@
 use std::fmt::{Display, Write as _};
 
+use debugger::FuncType;
 use indexmap::IndexMap;
 
 use pos::*;
@@ -71,8 +72,11 @@ pub enum TurtleError {
         acc
     }))]
     UndefGlobals(Vec<usize>),
-    #[error("type could not be inferred for some local variables")]
-    UndefLocals,
+    #[error("type could not be inferred for local variables {} in {}", .1.iter().fold(String::new(), |mut acc, idx| {
+        let _ = write!(acc, "#{idx}, ");
+        acc
+    }), .0)]
+    UndefLocals(FuncType, Vec<usize>),
     #[error("{0} at {1}")]
     TypeError(TypeError, FilePos),
     #[error("{0} at {1} - {2}")]

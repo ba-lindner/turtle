@@ -1,12 +1,12 @@
 use crate::{
-    tokens::{Expr, ExprKind, ValType},
+    tokens::{Expr, ExprKind, ValType, VariableKind},
     TurtleError,
 };
 
 use super::{CheckContext, TypeError, Vars};
 
 impl Expr {
-    pub(super) fn expect_type(
+    pub(crate) fn expect_type(
         &mut self,
         ty: ValType,
         ctx: &mut CheckContext,
@@ -97,7 +97,7 @@ impl Expr {
         }
     }
 
-    pub(super) fn val_type(
+    pub(crate) fn val_type(
         &mut self,
         ctx: &mut CheckContext,
     ) -> Result<(ValType, Vars), TurtleError> {
@@ -171,6 +171,25 @@ impl Expr {
                     proto.ret.expect("calc should have return type"),
                     super::check_args(exprs, &proto.args, e_map, ctx)?,
                 ))
+            }
+        }
+    }
+
+    pub(crate) fn collect_variables(&self) -> Vec<VariableKind> {
+        match &self.kind {
+            ExprKind::Const(_) => Vec::new(),
+            ExprKind::Variable(var) => vec![var.kind],
+            ExprKind::BiOperation(lhs, _, rhs) => {
+                let mut res = lhs.collect_variables();
+                res.append(&mut rhs.collect_variables());
+                res
+            }
+            ExprKind::UnOperation(_, expr)
+            | ExprKind::Absolute(expr)
+            | ExprKind::Bracket(expr)
+            | ExprKind::Convert(expr, _) => expr.collect_variables(),
+            ExprKind::FuncCall(_, exprs) | ExprKind::CalcCall(_, exprs) => {
+                exprs.iter().flat_map(|e| e.collect_variables()).collect()
             }
         }
     }

@@ -1,5 +1,9 @@
 use std::{
-    cell::{Cell, RefCell}, future::Future, pin::Pin, rc::Rc, sync::mpsc::{self, Receiver, Sender, TryRecvError}
+    cell::{Cell, RefCell},
+    future::Future,
+    pin::Pin,
+    rc::Rc,
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
 };
 
 use crate::{

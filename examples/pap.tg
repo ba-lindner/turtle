@@ -1,8 +1,8 @@
-event mouse(x: num, y: num, btn: bool)
+event mouse()
   path advance_step
 endevent
 
-event key(c: string)
+event key()
   path advance_step
 endevent
 

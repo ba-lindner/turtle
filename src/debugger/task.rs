@@ -89,7 +89,11 @@ impl<'p, W: Window> TurtleTask<'p, W> {
     }
 
     pub async fn exec_path_def(mut self, path: &'p PathDef, args: Vec<Value>, ft: FuncType) {
-        assert_eq!(path.args.len(), args.len());
+        if matches!(ft, FuncType::Event(_)) {
+            assert!(path.args.len() <= args.len())
+        } else {
+            assert_eq!(path.args.len(), args.len());
+        }
         {
             let mut ttl = self.turtle.borrow_mut();
             let frame = ttl.stack.last_mut().unwrap();

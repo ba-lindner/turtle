@@ -36,6 +36,10 @@ impl<'s, 'f> Parser<'s, 'f> {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.pos = 0;
+    }
+
     pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
         self.eof()?;
         let begin = self.curr_pos();

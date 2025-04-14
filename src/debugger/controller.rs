@@ -5,9 +5,10 @@ use std::{
 
 use crate::{
     features::{Feature, FeatureState},
-    pos::FilePos,
-    tokens::{EventKind, StmtKind, Value},
-    TProgram,
+    pos::{FilePos, Positionable},
+    prog::semcheck::{self, Vars},
+    tokens::{EventKind, StmtKind, ValType, Value, VariableKind},
+    TProgram, TurtleError,
 };
 
 use super::{
@@ -119,12 +120,12 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
 
     /// synchronize turtles
     ///
-    /// run after main turtle has drawn a line
+    /// run after active turtle has drawn a line
     ///
-    /// this will execute all *other* turtles until the next line
+    /// this will execute all *following* turtles until the next line
     /// draw and then remove finished turtles
     ///
-    /// afterwards, @delay is applied and events are handled
+    /// afterwards, `@delay` is applied and events are handled
     fn sync_turtles(&mut self) -> Result<(), ProgEnd> {
         let (finished, remaining) = self.turtles.split_at_mut(self.active_turtle + 1);
         let mut splits: Vec<_> = finished
@@ -359,18 +360,134 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         Ok(())
     }
 
+    fn check_undef(&self, vars: Vars, variables: Vec<VariableKind>) -> Result<(), TurtleError> {
+        if !vars.locals() {
+            Err(TurtleError::UndefLocals(
+                FuncType::Main,
+                semcheck::collect_undef(variables, true),
+            ))
+        } else if !vars.globals() {
+            Err(TurtleError::UndefGlobals(semcheck::collect_undef(
+                variables, false,
+            )))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn eval_expr(&mut self, frame: Option<usize>, expr: &str) -> Result<Value, DebugErr> {
-        let expr = self.prog.with_parser(expr, |p| Ok(p.parse_expr()?))?;
+        let mut expr = self.prog.with_parser(expr, |p| Ok(p.parse_expr()?))?;
         if expr.side_effects(self.prog, &mut Vec::new()) {
             return Err(DebugErr::ExprSideEffects);
         }
+        let mut ctx = self.prog.get_context();
+        let (_, vars) = expr.val_type(&mut ctx)?;
+        self.check_undef(vars, expr.collect_variables())?;
         Ok(self.active().eval(expr, frame))
     }
 
     /// returns true if turtle finished
     pub fn exec_stmt(&mut self, stmt: &str) -> Result<bool, DebugErr> {
-        let stmt = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
+        let mut stmt = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
+        let mut ctx = self.prog.get_context();
+        let vars = stmt.semantic_check(&mut ctx)?;
+        self.check_undef(vars, stmt.collect_variables())?;
         Ok(self.active().exec(stmt.into_inner()))
+    }
+
+    pub fn add_func(&mut self, func: &str) -> Result<(), DebugErr> {
+        let func = self.prog.with_parser(func, |p| {
+            Ok(p.parse_next().ok_or(TurtleError::ParseError(
+                crate::prog::parser::ParseError::UnexpectedEnd.attach_pos(FilePos::default()),
+            ))??)
+        })?;
+        let mut ctx = self.prog.get_context();
+        match func {
+            crate::tokens::ParseToken::PathDef(mut path) => {
+                if !path.semantic_check(&mut ctx)? {
+                    let vars = path.body.collect_variables();
+                    let undef = semcheck::collect_undef(vars, false);
+                    Err(TurtleError::UndefGlobals(undef))?;
+                }
+                if let Some(proto) = ctx.protos.get(&path.name) {
+                    if proto.args != path.args {
+                        return Err(DebugErr::IncompatibleArgs(FuncType::Path(path.name)));
+                    }
+                    self.prog
+                        .extensions
+                        .paths
+                        .borrow_mut()
+                        .retain(|p| p.name != path.name);
+                }
+                self.prog.extensions.paths.borrow_mut().push(path);
+            }
+            crate::tokens::ParseToken::CalcDef(mut calc) => {
+                if !calc.semantic_check(&mut ctx)? {
+                    let vars = calc.body.collect_variables();
+                    let undef = semcheck::collect_undef(vars, false);
+                    Err(TurtleError::UndefGlobals(undef))?;
+                }
+                if let Some(proto) = ctx.protos.get(&calc.name) {
+                    if proto.args != calc.args {
+                        return Err(DebugErr::IncompatibleArgs(FuncType::Calc(calc.name)));
+                    }
+                    self.prog
+                        .extensions
+                        .calcs
+                        .borrow_mut()
+                        .retain(|c| c.name != calc.name);
+                }
+                self.prog.extensions.calcs.borrow_mut().push(calc);
+            }
+            crate::tokens::ParseToken::EventHandler(kind, mut path) => {
+                if !path.semantic_check(&mut ctx)? {
+                    let vars = path.body.collect_variables();
+                    let undef = semcheck::collect_undef(vars, false);
+                    Err(TurtleError::UndefGlobals(undef))?;
+                }
+                let args: &[_] = match kind {
+                    EventKind::Mouse => &[ValType::Number, ValType::Number, ValType::Boolean],
+                    EventKind::Key => &[ValType::String],
+                };
+                semcheck::compare_args(kind, &path.args, args)?;
+                match kind {
+                    EventKind::Mouse => *self.prog.extensions.mouse_event.borrow_mut() = Some(path),
+                    EventKind::Key => *self.prog.extensions.key_event.borrow_mut() = Some(path),
+                }
+            }
+            crate::tokens::ParseToken::StartBlock(_) => return Err(DebugErr::MainBlock),
+        }
+        Ok(())
+    }
+
+    pub fn undef_func(&mut self, func: Option<FuncType>) -> Result<(), DebugErr> {
+        if let Some(func) = func {
+            match func {
+                FuncType::Main => return Err(DebugErr::MainBlock),
+                FuncType::Path(id) => self
+                    .prog
+                    .extensions
+                    .paths
+                    .borrow_mut()
+                    .retain(|p| p.name != id),
+                FuncType::Calc(id) => self
+                    .prog
+                    .extensions
+                    .calcs
+                    .borrow_mut()
+                    .retain(|c| c.name != id),
+                FuncType::Event(kind) => match kind {
+                    EventKind::Mouse => *self.prog.extensions.mouse_event.borrow_mut() = None,
+                    EventKind::Key => *self.prog.extensions.key_event.borrow_mut() = None,
+                },
+            }
+        } else {
+            self.prog.extensions.paths.borrow_mut().clear();
+            self.prog.extensions.calcs.borrow_mut().clear();
+            *self.prog.extensions.mouse_event.borrow_mut() = None;
+            *self.prog.extensions.key_event.borrow_mut() = None;
+        }
+        Ok(())
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

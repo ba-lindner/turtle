@@ -1,3 +1,22 @@
+macro_rules! match_extended {
+    ($inp:expr => {
+        $none:ident => $empty:expr,
+        $($key:literal => $res:expr,)*
+        $default:ident => $err:expr $(,)?
+    }) => {
+        match $inp {
+            Some(inp) => {
+                let extended = crate::debugger::interface::commands::extend_str(inp, &[$($key),*]);
+                match extended {
+                    $($key => $res,)*
+                    $default => $err,
+                }
+            }
+            $none => $empty,
+        }
+    };
+}
+
 mod commands;
 mod shell;
 mod terminal;

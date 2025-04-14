@@ -68,25 +68,6 @@ pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
     inp
 }
 
-macro_rules! match_extended {
-    ($inp:expr => {
-        $none:ident => $empty:expr,
-        $($key:literal => $res:expr,)*
-        $default:ident => $err:expr $(,)?
-    }) => {
-        match $inp {
-            Some(inp) => {
-                let extended = extend_str(inp, &[$($key),*]);
-                match extended {
-                    $($key => $res,)*
-                    $default => $err,
-                }
-            }
-            $none => $empty,
-        }
-    };
-}
-
 pub enum NoCmdReason<'l> {
     Quit,
     Help(&'static str),
@@ -135,8 +116,16 @@ pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
             None => DbgCommand::ListTurtles,
         },
         "stacktrace" => DbgCommand::Stacktrace,
-        "evaluate" => DbgCommand::Evaluate(words.collect()),
-        "execute" => DbgCommand::Execute(words.collect()),
+        "evaluate" => DbgCommand::Evaluate(words.fold(String::new(), |mut acc, e| {
+            acc += e;
+            acc += " ";
+            acc
+        })),
+        "execute" => DbgCommand::Execute(words.fold(String::new(), |mut acc, e| {
+            acc += e;
+            acc += " ";
+            acc
+        })),
         "help" => return Err(match_extended!(words.next() => {
             None => NoCmdReason::Help(DEBUG_HELP),
             "step" => NoCmdReason::Help(DEBUG_HELP_STEP),

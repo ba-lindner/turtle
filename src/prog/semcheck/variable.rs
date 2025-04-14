@@ -6,7 +6,7 @@ use crate::{
 use super::{CheckContext, TypeError, Vars};
 
 impl Variable {
-    pub(super) fn val_type(
+    pub(crate) fn val_type(
         &mut self,
         ctx: &mut CheckContext,
     ) -> Result<(ValType, Vars), TurtleError> {
@@ -36,7 +36,7 @@ impl Variable {
         }
     }
 
-    pub(super) fn expect_type(
+    pub(crate) fn expect_type(
         &mut self,
         ty: ValType,
         ctx: &mut CheckContext,

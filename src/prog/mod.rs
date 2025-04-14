@@ -16,7 +16,7 @@ pub use semcheck::TypeError;
 pub mod lexer;
 mod optimization;
 pub mod parser;
-mod semcheck;
+pub(crate) mod semcheck;
 mod side_effects;
 
 #[derive(Default)]
@@ -92,7 +92,7 @@ pub struct TProgram {
     key_event: Option<PathDef>,
     mouse_event: Option<PathDef>,
     pub symbols: SymbolTable,
-    extensions: Extensions,
+    pub extensions: Extensions,
 }
 
 impl TProgram {
@@ -183,10 +183,8 @@ impl TProgram {
         };
         if let Ok(evt) = Ref::filter_map(ext.borrow(), |e| e.as_ref()) {
             Some(MaybeRef::Cell(evt))
-        } else if let Some(evt) = default {
-            Some(MaybeRef::Ref(evt))
         } else {
-            None
+            default.as_ref().map(MaybeRef::Ref)
         }
     }
 
@@ -263,9 +261,9 @@ pub struct CalcDef {
 
 #[derive(Debug)]
 pub struct Extensions {
-    symbols: RefCell<SymbolTable>,
-    paths: RefCell<Vec<PathDef>>,
-    calcs: RefCell<Vec<CalcDef>>,
-    key_event: RefCell<Option<PathDef>>,
-    mouse_event: RefCell<Option<PathDef>>,
+    pub symbols: RefCell<SymbolTable>,
+    pub paths: RefCell<Vec<PathDef>>,
+    pub calcs: RefCell<Vec<CalcDef>>,
+    pub key_event: RefCell<Option<PathDef>>,
+    pub mouse_event: RefCell<Option<PathDef>>,
 }

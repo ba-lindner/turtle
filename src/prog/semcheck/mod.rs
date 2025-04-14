@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{features::FeatureConf, tokens::*, Identified, TurtleError};
+use crate::{debugger::FuncType, features::FeatureConf, tokens::*, Identified, TurtleError};
 
 use super::{CalcDef, PathDef, TProgram};
 
@@ -10,15 +10,15 @@ mod statements;
 mod test;
 mod variable;
 
-struct CheckContext {
-    features: FeatureConf,
-    protos: HashMap<usize, Prototype>,
-    globals: HashMap<usize, ValType>,
-    locals: HashMap<usize, ValType>,
+pub(crate) struct CheckContext {
+    pub(crate) features: FeatureConf,
+    pub(crate) protos: HashMap<usize, Prototype>,
+    pub(crate) globals: HashMap<usize, ValType>,
+    pub(crate) locals: HashMap<usize, ValType>,
 }
 
 impl CheckContext {
-    fn var_count(&self) -> usize {
+    pub fn var_count(&self) -> usize {
         self.globals
             .values()
             .filter(|&&vt| vt != ValType::Any)
@@ -48,8 +48,9 @@ impl TProgram {
         };
         type CheckFunc<'p> =
             dyn Fn(&'_ mut TProgram, &'_ mut CheckContext) -> Result<bool, TurtleError> + 'p;
-        let mut checks: Vec<Box<CheckFunc<'_>>> =
-            vec![Box::new(|prog, ctx| prog.main.semantic_check_loop(ctx))];
+        let mut checks: Vec<Box<CheckFunc<'_>>> = vec![Box::new(|prog, ctx| {
+            prog.main.semantic_check_loop(ctx, FuncType::Main)
+        })];
         for i in 0..self.calcs.len() {
             checks.push(Box::new(move |prog, ctx| prog.calcs[i].semantic_check(ctx)));
         }
@@ -97,32 +98,12 @@ impl TProgram {
         Ok(())
     }
 
-    fn check_event_args(&self) -> Result<(), TurtleError> {
-        fn check_args(
-            kind: EventKind,
-            is: &[(usize, ValType)],
-            should: &[ValType],
-        ) -> Result<(), TurtleError> {
-            if is.len() != should.len() {
-                return Err(TurtleError::EventArgsLength(kind, is.len(), should.len()));
-            }
-            for idx in 0..is.len() {
-                if is[idx].1 != should[idx] {
-                    return Err(TurtleError::EventArgsType(
-                        kind,
-                        idx,
-                        is[idx].1,
-                        should[idx],
-                    ));
-                }
-            }
-            Ok(())
-        }
+    pub(crate) fn check_event_args(&self) -> Result<(), TurtleError> {
         if let Some(evt) = &self.key_event {
-            check_args(EventKind::Key, &evt.args, &[ValType::String])?;
+            compare_args(EventKind::Key, &evt.args, &[ValType::String])?;
         }
         if let Some(evt) = &self.mouse_event {
-            check_args(
+            compare_args(
                 EventKind::Mouse,
                 &evt.args,
                 &[ValType::Number, ValType::Number, ValType::Boolean],
@@ -130,14 +111,78 @@ impl TProgram {
         }
         Ok(())
     }
+
+    pub(crate) fn get_context(&self) -> CheckContext {
+        let mut res = CheckContext {
+            features: self.features,
+            protos: HashMap::new(),
+            globals: HashMap::new(),
+            locals: HashMap::new(),
+        };
+        for path in &self.paths {
+            path.collect_context(&mut res);
+        }
+        for calc in &self.calcs {
+            calc.collect_context(&mut res);
+        }
+        if let Some(evt) = &self.key_event {
+            evt.collect_context(&mut res);
+        }
+        if let Some(evt) = &self.mouse_event {
+            evt.collect_context(&mut res);
+        }
+        for path in &*self.extensions.paths.borrow() {
+            path.collect_context(&mut res);
+        }
+        for calc in &*self.extensions.calcs.borrow() {
+            calc.collect_context(&mut res);
+        }
+        if let Some(evt) = &*self.extensions.key_event.borrow() {
+            evt.collect_context(&mut res);
+        }
+        if let Some(evt) = &*self.extensions.mouse_event.borrow() {
+            evt.collect_context(&mut res);
+        }
+        res.locals.clear();
+        res
+    }
+}
+
+pub(crate) fn compare_args(
+    kind: EventKind,
+    is: &[(usize, ValType)],
+    should: &[ValType],
+) -> Result<(), TurtleError> {
+    if is.len() > should.len() {
+        return Err(TurtleError::EventArgsLength(kind, is.len(), should.len()));
+    }
+    for idx in 0..is.len() {
+        if is[idx].1 != should[idx] {
+            return Err(TurtleError::EventArgsType(
+                kind,
+                idx,
+                is[idx].1,
+                should[idx],
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[must_use]
-struct Vars(bool, bool);
+pub(crate) struct Vars(bool, bool);
 
 impl Vars {
     pub fn new() -> Self {
         Self(true, true)
+    }
+
+    pub fn locals(&self) -> bool {
+        self.0
+    }
+
+    pub fn globals(&self) -> bool {
+        self.1
     }
 }
 
@@ -157,46 +202,64 @@ impl std::ops::BitAndAssign for Vars {
 }
 
 #[derive(Clone)]
-pub struct Prototype {
+pub(crate) struct Prototype {
     pub args: ArgDefList,
     pub ret: Option<ValType>,
 }
 
 impl PathDef {
-    fn prototype(&self) -> Prototype {
+    pub(crate) fn prototype(&self) -> Prototype {
         Prototype {
             args: self.args.clone(),
             ret: None,
         }
     }
 
-    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
+    pub(crate) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
         ctx.locals = self.args.iter().cloned().collect();
-        let res = self.body.semantic_check_loop(ctx);
+        let res = self
+            .body
+            .semantic_check_loop(ctx, FuncType::Path(self.name));
         ctx.locals.clear();
         res
+    }
+
+    pub(crate) fn collect_context(&self, ctx: &mut CheckContext) {
+        ctx.protos.insert(self.name, self.prototype());
+        self.body.collect_context(ctx);
     }
 }
 
 impl CalcDef {
-    fn prototype(&self) -> Prototype {
+    pub(crate) fn prototype(&self) -> Prototype {
         Prototype {
             args: self.args.clone(),
             ret: Some(self.ret_ty),
         }
     }
 
-    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
+    pub(crate) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
         ctx.locals = self.args.iter().cloned().collect();
-        let res = self.body.semantic_check_loop(ctx);
+        let res = self
+            .body
+            .semantic_check_loop(ctx, FuncType::Calc(self.name));
         ctx.locals.clear();
         res
+    }
+
+    pub(crate) fn collect_context(&self, ctx: &mut CheckContext) {
+        ctx.protos.insert(self.name, self.prototype());
+        self.body.collect_context(ctx);
     }
 }
 
 impl Block {
     /// returns whether all global variables could be identified
-    fn semantic_check_loop(&mut self, ctx: &mut CheckContext) -> Result<bool, TurtleError> {
+    pub(crate) fn semantic_check_loop(
+        &mut self,
+        ctx: &mut CheckContext,
+        func: FuncType,
+    ) -> Result<bool, TurtleError> {
         loop {
             let prev = ctx.var_count();
             let res = self.semantic_check(ctx)?;
@@ -204,20 +267,40 @@ impl Block {
                 return Ok(res.1);
             }
             if prev == ctx.var_count() {
-                return Err(TurtleError::UndefLocals);
+                return Err(TurtleError::UndefLocals(
+                    func,
+                    collect_undef(self.collect_variables(), true),
+                ));
             }
         }
     }
 
     /// returns whether all local and/or global variables could be identified
-    fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
+    pub(crate) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
         self.statements
             .iter_mut()
             .try_fold(Vars::new(), |v, stmt| Ok(v & stmt.semantic_check(ctx)?))
     }
+
+    pub(crate) fn collect_context(&self, ctx: &mut CheckContext) {
+        for var in self.collect_variables() {
+            match var {
+                VariableKind::Global(id, ty) => _ = ctx.globals.insert(id, ty),
+                VariableKind::Local(id, ty) => _ = ctx.locals.insert(id, ty),
+                VariableKind::GlobalPreDef(_) => {}
+            }
+        }
+    }
+
+    pub(crate) fn collect_variables(&self) -> Vec<VariableKind> {
+        self.statements
+            .iter()
+            .flat_map(|s| s.collect_variables())
+            .collect()
+    }
 }
 
-fn check_args(
+pub(crate) fn check_args(
     exprs: &mut [Expr],
     args: &[(usize, ValType)],
     e_map: impl Fn(TypeError) -> TurtleError,
@@ -236,13 +319,23 @@ fn check_args(
 }
 
 impl ValType {
-    fn assert(&self, expected: ValType) -> Result<(), TypeError> {
+    pub(crate) fn assert(&self, expected: ValType) -> Result<(), TypeError> {
         if *self == expected {
             Ok(())
         } else {
             Err(TypeError::WrongType(*self, expected))
         }
     }
+}
+
+pub fn collect_undef(vars: Vec<VariableKind>, local: bool) -> Vec<usize> {
+    vars.into_iter()
+        .filter_map(|kind| match (local, kind) {
+            (true, VariableKind::Local(id, ValType::Any)) => Some(id),
+            (false, VariableKind::Global(id, ValType::Any)) => Some(id),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
