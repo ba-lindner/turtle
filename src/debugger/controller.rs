@@ -152,7 +152,10 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         if self.turtles.is_empty() {
             return Err(ProgEnd::AllTurtlesFinished);
         }
-        std::thread::sleep(std::time::Duration::from_millis(self.ctx.delay.get() as u64));
+        let delay = self.ctx.delay.get() as u64;
+        if delay > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+        }
         let events = self
             .ctx
             .window
