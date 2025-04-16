@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell},
-    ops::Deref,
+    ops::Deref, str::FromStr,
 };
 
 use crate::{
@@ -223,6 +223,14 @@ impl TProgram {
         let mut parser = Parser::new(&mut symbols, ltokens, &mut features);
         f(&mut parser)
     }
+}
+
+impl FromStr for TProgram {
+    type Err = TurtleError;
+
+     fn from_str(s: &str) -> Result<Self, Self::Err> {
+         Self::parse(s, false, FeatureConf::default())
+     }
 }
 
 pub enum MaybeRef<'r, T> {

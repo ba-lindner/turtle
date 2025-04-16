@@ -28,10 +28,7 @@ impl Strings<std::iter::Empty<String>> {
 
 impl<I: Iterator<Item = String>> Strings<I> {
     pub fn new(inputs: I, outputs: Sender<StringRes>) -> Self {
-        Self {
-            inputs,
-            outputs,
-        }
+        Self { inputs, outputs }
     }
 }
 
@@ -55,6 +52,19 @@ impl<I: Iterator<Item = String>> CommonInterface for Strings<I> {
         run: &mut Debugger<'p, W>,
         cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
+        macro_rules! ok {
+            ($fmt:literal $($t:tt)*) => { ok!(format!($fmt $($t)*)) };
+            ($e:expr) => { _ = self.outputs.send(Ok($e)) };
+        }
+        macro_rules! err {
+            ($e:expr) => { err!($e, _ => {}) };
+            ($e:expr, $p:pat => $($t:tt)*) => {
+                match $e {
+                    Ok($p) => {$($t)*}
+                    Err(why) => _ = self.outputs.send(Err(why.to_string())),
+                }
+            };
+        }
         match cmd {
             DbgCommand::StepSingle(count) => {
                 for _ in 0..count {
@@ -72,84 +82,65 @@ impl<I: Iterator<Item = String>> CommonInterface for Strings<I> {
             DbgCommand::StepSync => run.step_sync()?,
             DbgCommand::Run => run.run_breakpoints()?,
             DbgCommand::ToggleNarrate => {
-                let narrator = if run.toggle_narrate() { "ON" } else { "OFF" };
-                _ = self.outputs.send(Ok(format!("narrator is {narrator}")));
+                let n = if run.toggle_narrate() { "ON" } else { "OFF" };
+                ok!("narrator is {n}");
             }
-            DbgCommand::Vardump => match run.vardump(None) {
-                Ok(vars) => {
-                    for (name, value) in vars.locals {
-                        _ = self.outputs.send(Ok(format!("{name:<20} {value}")));
-                    }
-                    for (name, value) in vars.globals {
-                        _ = self.outputs.send(Ok(format!("@{name:<19} {value}")));
-                    }
-                    for (pdv, value) in vars.predef {
-                        _ = self.outputs.send(Ok(format!("@{:<19} {value}", pdv.get_str())));
-                    }
+            DbgCommand::Vardump => err!(run.vardump(None), vars => {
+                for (name, value) in vars.locals {
+                    ok!("{name:<20} {value}");
                 }
-                Err(why) => _ = self.outputs.send(Err(why.to_string())),
-            },
+                for (name, value) in vars.globals {
+                    ok!("@{name:<19} {value}");
+                }
+                for (pdv, value) in vars.predef {
+                    ok!("@{:<19} {value}", pdv.get_str());
+                }
+            }),
             DbgCommand::CurrPos => {
-                let pos = run.curr_pos();
-                let res = format!(
-                    "turtle #{} is currently in {} at {}",
-                    run.active_id(),
-                    pos.0.disp(&run.prog.symbols),
-                    pos.1
-                );
-                _ = self.outputs.send(Ok(res));
+                let id = run.active_id();
+                let (func, pos) = run.curr_pos();
+                let disp = func.disp(&run.prog.symbols);
+                ok!("turtle #{id} is currently in {disp} at {pos}");
             }
             DbgCommand::ListTurtles => {
                 let (sync, turtles) = run.list_turtles();
-                let sync = format!("turtles are {}in sync", if sync { "" } else { "NOT " });
-                _ = self.outputs.send(Ok(sync));
+                ok!("turtles are {}in sync", if sync { "" } else { "NOT " });
                 for ttl in turtles {
-                    _ = self.outputs.send(Ok(ttl.disp(&run.prog.symbols)));
+                    ok!(ttl.disp(&run.prog.symbols));
                 }
             }
-            DbgCommand::SelectTurtle(id) => match run.select_turtle(id) {
-                Ok(()) => _ = self.outputs.send(Ok(format!("turtle #{id} selected"))),
-                Err(why) => _ = self.outputs.send(Err(why.to_string())),
-            },
+            DbgCommand::SelectTurtle(id) => err!(
+                run.select_turtle(id),
+                () => ok!("turtle #{id} selected");
+            ),
             DbgCommand::ListBreakpoints => {
                 for bp in run.list_breakpoints() {
-                    _ = self.outputs.send(Ok(bp.to_string()));
+                    ok!(bp.to_string());
                 }
             }
             DbgCommand::AddBreakpoint(pos) => _ = run.add_breakpoint(pos),
             DbgCommand::DeleteBreakpoint(id) => run.delete_breakpoint(id),
-            DbgCommand::EnableBreakpoint(id, active) => {
-                if let Err(why) = run.enable_breakpoint(id, active) {
-                    _ = self.outputs.send(Err(why.to_string()));
-                }
-            }
+            DbgCommand::EnableBreakpoint(id, active) => err!(run.enable_breakpoint(id, active)),
             DbgCommand::Stacktrace => {
                 for frame in run.stacktrace() {
-                    _ = self.outputs.send(Ok(frame.disp(&run.prog.symbols)))
+                    ok!(frame.disp(&run.prog.symbols));
                 }
             }
-            DbgCommand::Evaluate(expr) => match run.eval_expr(None, &expr) {
-                Ok(val) => _ = self.outputs.send(Ok(val.to_string())),
-                Err(why) => _ = self.outputs.send(Err(why.to_string())),
-            },
-            DbgCommand::Execute(stmt) => {
-                if let Err(why) = run.exec_stmt(&stmt) {
-                    _ = self.outputs.send(Err(why.to_string()));
-                }
-            }
+            DbgCommand::Evaluate(expr) => err!(
+                run.eval_expr(None, &expr),
+                val => ok!(val.to_string());
+            ),
+            DbgCommand::Execute(stmt) => err!(run.exec_stmt(&stmt)),
         }
         let (stmt_count, events) = run.events();
         if stmt_count > 0 {
-            _ = self
-                .outputs
-                .send(Ok(format!("executed {} statements", stmt_count)));
+            ok!("executed {} statements", stmt_count);
         }
         for evt in events {
-            let msg = match evt {
-                DbgEvent::TurtleFinished(id) => format!("turtle #{id} finished"),
-                DbgEvent::BreakpointHit(id) => format!("breakpoint #{id} hit"),
+            match evt {
+                DbgEvent::TurtleFinished(id) => ok!("turtle #{id} finished"),
+                DbgEvent::BreakpointHit(id) => ok!("breakpoint #{id} hit"),
             };
-            _ = self.outputs.send(Ok(msg));
         }
         Ok(())
     }

@@ -2,7 +2,11 @@ use std::sync::mpsc;
 
 use crate::{features::FeatureConf, TProgram};
 
-use super::{config::RunConfig, interface::Strings, window::{ChannelWindow, WindowCmd, WindowEvent}};
+use super::{
+    config::RunConfig,
+    interface::Strings,
+    window::{ChannelWindow, WindowCmd, WindowEvent},
+};
 
 const TEST_SRC_CIRCLE: &str = "
 path circle(r,n)
@@ -64,21 +68,20 @@ fn debug_test(code: &str, inputs: &[TestInput<'_>]) -> Vec<TestResult> {
             }
         }
     };
-    let itf = Strings::new(inputs.iter().filter_map(|inp| {
-        match inp {
+    let itf = Strings::new(
+        inputs.iter().filter_map(|inp| match inp {
             TestInput::Stdin(cmd) => {
                 collect_results();
                 Some(cmd.to_string())
-            },
+            }
             TestInput::Event(evt) => {
                 events.send(*evt).unwrap();
                 None
             }
-        }
-    }), dbg_tx);
-    let cfg = RunConfig::new(&[])
-        .debug_in(itf)
-        .window(window);
+        }),
+        dbg_tx,
+    );
+    let cfg = RunConfig::new(&[]).debug_in(itf).window(window);
     cfg.exec(&prog);
     collect_results();
     results
@@ -92,9 +95,16 @@ fn example_test() {
         TestInput::Event(WindowEvent::WindowExited),
     ];
     let results = debug_test(TEST_SRC_CIRCLE, inputs);
-    assert_eq!(results, &[
-        TestResult::Stderr("unknown command test".to_string()),
-        TestResult::Window(WindowCmd::Draw((0.675, 0.0), (0.6736678225654924, -0.05652076441067613), (100.0, 100.0, 0.0))),
-        TestResult::Stdout("executed 10 statements".to_string()),
-    ]);
+    assert_eq!(
+        results,
+        &[
+            TestResult::Stderr("unknown command test".to_string()),
+            TestResult::Window(WindowCmd::Draw(
+                (0.675, 0.0),
+                (0.6736678225654924, -0.05652076441067613),
+                (100.0, 100.0, 0.0)
+            )),
+            TestResult::Stdout("executed 10 statements".to_string()),
+        ]
+    );
 }

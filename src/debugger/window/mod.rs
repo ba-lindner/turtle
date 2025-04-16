@@ -28,7 +28,10 @@ pub trait Window {
 
     fn events(&mut self) -> Vec<WindowEvent>;
 
-    fn buffered(self) -> BufferedWindow<impl Window> where Self: Sized {
+    fn buffered(self) -> BufferedWindow<impl Window>
+    where
+        Self: Sized,
+    {
         BufferedWindow::new(self)
     }
 }
@@ -78,7 +81,7 @@ pub enum WindowEvent {
 pub enum WindowCmd {
     Draw(TCoord, TCoord, TColor),
     Clear,
-    Print(String)
+    Print(String),
 }
 
 impl Window for VoidWindow {

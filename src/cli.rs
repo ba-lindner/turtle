@@ -98,7 +98,7 @@ pub enum Display {
     /// no display
     Void,
     /// buffered window
-    /// 
+    ///
     /// redraws every line on changes to @max_x / @max_y
     Buffered,
 }

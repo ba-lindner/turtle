@@ -107,7 +107,10 @@ impl SdlWindow {
             Event::MouseButtonDown {
                 x, y, mouse_btn, ..
             } => Some(WindowEvent::MouseClicked(
-                (2.0 * x as f64 / WIDTH as f64 - 1.0, 1.0 - y as f64 * 2.0 / HEIGHT as f64),
+                (
+                    2.0 * x as f64 / WIDTH as f64 - 1.0,
+                    1.0 - y as f64 * 2.0 / HEIGHT as f64,
+                ),
                 mouse_btn == sdl2::mouse::MouseButton::Left,
             )),
             _ => None,

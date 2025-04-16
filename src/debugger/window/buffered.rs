@@ -4,7 +4,7 @@ use super::Window;
 
 pub struct BufferedWindow<W> {
     inner: W,
-    buffer: Vec<(TCoord, TCoord, TColor)>
+    buffer: Vec<(TCoord, TCoord, TColor)>,
 }
 
 impl<W: Window> BufferedWindow<W> {
@@ -60,7 +60,10 @@ impl<W: Window> Window for BufferedWindow<W> {
         self.inner.events()
     }
 
-    fn buffered(self) -> BufferedWindow<impl Window> where Self: Sized {
+    fn buffered(self) -> BufferedWindow<impl Window>
+    where
+        Self: Sized,
+    {
         self
     }
 }

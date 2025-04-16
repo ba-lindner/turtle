@@ -61,16 +61,21 @@ impl Window for ChannelWindow {
     }
 
     fn print(&mut self, msg: &str) {
-        self.commands.send(WindowCmd::Print(msg.to_string())).unwrap();
+        self.commands
+            .send(WindowCmd::Print(msg.to_string()))
+            .unwrap();
     }
 
     fn events(&mut self) -> Vec<WindowEvent> {
-        self.events.try_iter().map(|mut evt| {
-            if let WindowEvent::MouseClicked(pos, _) = &mut evt {
-                pos.0 *= self.max_coord.0;
-                pos.1 *= self.max_coord.1;
-            }
-            evt
-        }).collect()
+        self.events
+            .try_iter()
+            .map(|mut evt| {
+                if let WindowEvent::MouseClicked(pos, _) = &mut evt {
+                    pos.0 *= self.max_coord.0;
+                    pos.1 *= self.max_coord.1;
+                }
+                evt
+            })
+            .collect()
     }
 }
