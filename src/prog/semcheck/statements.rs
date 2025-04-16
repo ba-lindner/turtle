@@ -28,7 +28,13 @@ impl Pos<Statement> {
             | Statement::Wait
             | Statement::MoveMark(_) => Ok(Vars::new()),
             Statement::PathCall(id, exprs) | Statement::Split(id, exprs) => {
-                super::check_args(exprs, &ctx.protos[&*id].clone().args, e_map, ctx)
+                let args = ctx
+                    .protos
+                    .get(id)
+                    .ok_or(TurtleError::MissingDefinition(*id))?
+                    .clone()
+                    .args;
+                super::check_args(exprs, &args, e_map, ctx)
             }
             Statement::Store(expr, var) => {
                 let var_ty = var.val_type(ctx)?;

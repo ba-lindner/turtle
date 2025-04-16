@@ -86,7 +86,11 @@ impl Expr {
                 Ok(v)
             }
             ExprKind::CalcCall(idx, exprs) => {
-                let proto = ctx.protos[&*idx].clone();
+                let proto = ctx
+                    .protos
+                    .get(idx)
+                    .ok_or(TurtleError::MissingDefinition(*idx))?
+                    .clone();
                 proto
                     .ret
                     .expect("calc should have ret type")
