@@ -97,6 +97,10 @@ pub enum Display {
     Sdl,
     /// no display
     Void,
+    /// buffered window
+    /// 
+    /// redraws every line on changes to @max_x / @max_y
+    Buffered,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug, Default)]

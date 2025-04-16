@@ -31,14 +31,23 @@ impl ChannelWindow {
 }
 
 impl Window for ChannelWindow {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        self.max_coord = (max_x, max_y);
-        let init = std::mem::replace(&mut self.init, Box::new(|| ()));
-        init()
+    fn init(&mut self) {
+        // self.init is `impl FnOnce()`, so executing it moves it
+        // thus we need to replace it with empty closure
+        // it probably shouldn't be executed twice anyway
+        std::mem::replace(&mut self.init, Box::new(|| ()))();
     }
 
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        &mut self.max_coord
+    fn get_max_coords(&self) -> TCoord {
+        self.max_coord
+    }
+
+    fn set_max_x(&mut self, max_x: f64) {
+        self.max_coord.0 = max_x;
+    }
+
+    fn set_max_y(&mut self, max_y: f64) {
+        self.max_coord.1 = max_y;
     }
 
     fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {

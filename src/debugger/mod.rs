@@ -101,8 +101,8 @@ impl<W: Window> GlobalCtx<W> {
     pub fn get_var(&self, var: PredefVar) -> Value {
         match var {
             PredefVar::Arg(i) => self.args[i - 1].clone(),
-            PredefVar::MaxX => Value::Number(self.window.borrow_mut().max_coords().0),
-            PredefVar::MaxY => Value::Number(self.window.borrow_mut().max_coords().1),
+            PredefVar::MaxX => Value::Number(self.window.borrow().get_max_coords().0),
+            PredefVar::MaxY => Value::Number(self.window.borrow().get_max_coords().1),
             PredefVar::Delay => Value::Number(self.delay.get()),
             _ => unreachable!(),
         }
@@ -110,8 +110,8 @@ impl<W: Window> GlobalCtx<W> {
 
     pub fn set_var(&self, var: PredefVar, val: Value) {
         match var {
-            PredefVar::MaxX => self.window.borrow_mut().max_coords().0 = val.num(),
-            PredefVar::MaxY => self.window.borrow_mut().max_coords().1 = val.num(),
+            PredefVar::MaxX => self.window.borrow_mut().set_max_x(val.num()),
+            PredefVar::MaxY => self.window.borrow_mut().set_max_y(val.num()),
             PredefVar::Delay => self.delay.set(val.num()),
             _ => unreachable!(),
         }

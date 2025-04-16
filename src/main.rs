@@ -52,6 +52,7 @@ impl Display {
         match self {
             Display::Sdl => Box::new(SdlWindow::create(title.to_string())),
             Display::Void => Box::new(VoidWindow::default()),
+            Display::Buffered => Box::new(SdlWindow::create(title.to_string()).buffered()),
         }
     }
 }

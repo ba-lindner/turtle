@@ -82,7 +82,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn debug_in(&mut self, mut interf: impl DbgInterface) {
-        self.ctx.window.borrow_mut().init(20.0, 15.0);
+        self.ctx.window.borrow_mut().init_with(20.0, 15.0);
         if interf.exec(self) == ProgEnd::AllTurtlesFinished {
             self.finished();
         };
@@ -223,7 +223,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn run(&mut self) {
-        self.ctx.window.borrow_mut().init(20.0, 15.0);
+        self.ctx.window.borrow_mut().init_with(20.0, 15.0);
         while !self.turtles.is_empty() {
             self.active().run_sleep();
             match self.sync_turtles() {

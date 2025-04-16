@@ -1,36 +1,53 @@
 use super::{TColor, TCoord};
 
+mod buffered;
 mod channel;
 mod sdl;
 
+pub use buffered::BufferedWindow;
 pub use channel::ChannelWindow;
 pub use sdl::SdlWindow;
 pub type VoidWindow = (f64, f64);
 
 pub trait Window {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        *self.max_coords() = (max_x, max_y);
+    fn init(&mut self);
+    fn init_with(&mut self, max_x: f64, max_y: f64) {
+        self.set_max_x(max_x);
+        self.set_max_y(max_y);
+        self.init();
     }
 
-    fn max_coords(&mut self) -> &mut (f64, f64);
+    fn get_max_coords(&self) -> TCoord;
+    fn set_max_x(&mut self, max_x: f64);
+    fn set_max_y(&mut self, max_y: f64);
 
-    fn draw(&mut self, _: TCoord, _: TCoord, _: TColor) {}
-    fn clear(&mut self) {}
+    fn draw(&mut self, from: TCoord, to: TCoord, col: TColor);
+    fn clear(&mut self);
 
-    fn print(&mut self, _: &str) {}
+    fn print(&mut self, msg: &str);
 
-    fn events(&mut self) -> Vec<WindowEvent> {
-        Vec::new()
+    fn events(&mut self) -> Vec<WindowEvent>;
+
+    fn buffered(self) -> BufferedWindow<impl Window> where Self: Sized {
+        BufferedWindow::new(self)
     }
 }
 
 impl Window for Box<dyn Window> {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        (**self).init(max_x, max_y);
+    fn init(&mut self) {
+        (**self).init();
     }
 
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        (**self).max_coords()
+    fn get_max_coords(&self) -> TCoord {
+        (**self).get_max_coords()
+    }
+
+    fn set_max_x(&mut self, max_x: f64) {
+        (**self).set_max_x(max_x);
+    }
+
+    fn set_max_y(&mut self, max_y: f64) {
+        (**self).set_max_y(max_y);
     }
 
     fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {
@@ -65,7 +82,26 @@ pub enum WindowCmd {
 }
 
 impl Window for VoidWindow {
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        self
+    fn init(&mut self) {}
+
+    fn get_max_coords(&self) -> TCoord {
+        *self
+    }
+
+    fn set_max_x(&mut self, max_x: f64) {
+        self.0 = max_x;
+    }
+
+    fn set_max_y(&mut self, max_y: f64) {
+        self.1 = max_y
+    }
+
+    fn draw(&mut self, _: TCoord, _: TCoord, _: TColor) {}
+    fn clear(&mut self) {}
+
+    fn print(&mut self, _: &str) {}
+
+    fn events(&mut self) -> Vec<WindowEvent> {
+        Vec::new()
     }
 }
