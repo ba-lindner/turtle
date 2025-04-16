@@ -22,6 +22,9 @@ pub enum TCommand {
     },
     /// Start turtle shell
     Shell {
+        /// display mechanism
+        #[arg(short, long, default_value = "sdl")]
+        window: Display,
         /// source file to load functions from
         #[arg(short, long)]
         base: Option<String>,

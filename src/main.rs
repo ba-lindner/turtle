@@ -47,12 +47,18 @@ impl Source {
     }
 }
 
-impl RunOpt {
-    fn config<'a>(&'a self, title: &str) -> RunConfig<'a, Box<dyn Window>, Terminal> {
-        RunConfig::new(&self.args).window(match self.window {
+impl Display {
+    fn into_boxed(&self, title: &str) -> Box<dyn Window> {
+        match self {
             Display::Sdl => Box::new(SdlWindow::new(title)),
             Display::Void => Box::new((20.0, 15.0)),
-        })
+        }
+    }
+}
+
+impl RunOpt {
+    fn config<'a>(&'a self, title: &str) -> RunConfig<'a, Box<dyn Window>, Terminal> {
+        RunConfig::new(&self.args).window(self.window.into_boxed(title))
     }
 }
 
@@ -70,13 +76,20 @@ fn main() {
             }
             opt.config(&prog.title("Interpreter")).exec(&prog);
         }
-        TCommand::Shell { features, base } => {
+        TCommand::Shell {
+            features,
+            base,
+            window,
+        } => {
             let prog = if let Some(file) = base {
                 Source { features, file }.get_prog()
             } else {
                 TProgram::parse("begin end".to_string(), false, features.feature_conf()).unwrap()
             };
-            RunConfig::new(&[]).debug_in(Shell).exec(&prog);
+            RunConfig::new(&[])
+                .window(window.into_boxed("Turtle Shell"))
+                .debug_in(Shell)
+                .exec(&prog);
         }
         TCommand::Debug {
             source,
