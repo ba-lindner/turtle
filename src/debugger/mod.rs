@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
+    fmt::{Display, Write as _},
     sync::Arc,
     task::{Wake, Waker},
 };
@@ -12,7 +13,7 @@ use window::Window;
 use crate::{
     pos::FilePos,
     tokens::{EventKind, PredefVar, StmtKind, Value},
-    TurtleError,
+    SymbolTable, TurtleError,
 };
 
 pub use controller::DebugController as Debugger;
@@ -23,6 +24,8 @@ mod controller;
 pub mod interface;
 mod runner;
 mod task;
+#[cfg(test)]
+mod test;
 mod turtle;
 mod varlist;
 pub mod window;
@@ -70,6 +73,18 @@ pub struct Breakpoint {
     id: usize,
     enabled: bool,
     pos: FilePos,
+}
+
+impl Display for Breakpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "#{:<3} {} {}",
+            self.id,
+            if self.enabled { "enabled " } else { "disabled" },
+            self.pos
+        )
+    }
 }
 
 struct GlobalCtx<W> {
@@ -130,10 +145,31 @@ pub struct TurtleInfo {
     pub start_task: (FuncType, Vec<Value>),
 }
 
+impl TurtleInfo {
+    pub fn disp(&self, symbols: &SymbolTable) -> String {
+        let func = self.start_task.0.disp(symbols);
+        let mut res = format!(
+            "#{:<3} {} {func}",
+            self.id,
+            if self.is_active { "x" } else { " " }
+        );
+        for val in &self.start_task.1 {
+            write!(&mut res, " {val}").unwrap();
+        }
+        res
+    }
+}
+
 pub struct FrameInfo {
     pub index: usize,
     pub func: FuncType,
     pub pos: FilePos,
+}
+
+impl FrameInfo {
+    pub fn disp(&self, symbols: &SymbolTable) -> String {
+        format!("{:<3} {} {}", self.index, self.func.disp(symbols), self.pos)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

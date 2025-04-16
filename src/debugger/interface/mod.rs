@@ -19,12 +19,14 @@ macro_rules! match_extended {
 
 mod commands;
 mod shell;
+mod strings;
 mod terminal;
 mod vscode;
 
 use super::{window::Window, Debugger, ProgEnd};
 
 pub use shell::Shell;
+pub use strings::Strings;
 pub use terminal::Terminal;
 pub use vscode::VSCode;
 

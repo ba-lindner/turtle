@@ -2,7 +2,7 @@ use crate::{pos::FilePos, TProgram};
 
 use super::{
     interface::{DbgInterface, Terminal},
-    window::SdlWindow,
+    window::{ChannelWindow, SdlWindow},
     Debugger, Window,
 };
 
@@ -17,11 +17,11 @@ pub enum RunKind<I> {
     Debug(I, Vec<FilePos>),
 }
 
-impl<'a> RunConfig<'a, SdlWindow, Terminal> {
+impl<'a> RunConfig<'a, ChannelWindow, Terminal> {
     pub fn new(args: &'a [String]) -> Self {
         Self {
             args,
-            window: SdlWindow::new("Turtle Graphics"),
+            window: SdlWindow::create("Turtle Graphics".to_string()),
             kind: RunKind::Interpret,
         }
     }

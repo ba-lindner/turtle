@@ -1,8 +1,11 @@
 use super::{TColor, TCoord};
 
+mod channel;
 mod sdl;
 
+pub use channel::ChannelWindow;
 pub use sdl::SdlWindow;
+pub type VoidWindow = (f64, f64);
 
 pub trait Window {
     fn init(&mut self, max_x: f64, max_y: f64) {
@@ -54,7 +57,14 @@ pub enum WindowEvent {
     MouseClicked(TCoord, bool),
 }
 
-impl Window for (f64, f64) {
+#[derive(Debug, PartialEq)]
+pub enum WindowCmd {
+    Draw(TCoord, TCoord, TColor),
+    Clear,
+    Print(String)
+}
+
+impl Window for VoidWindow {
     fn max_coords(&mut self) -> &mut (f64, f64) {
         self
     }

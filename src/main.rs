@@ -3,7 +3,7 @@ use turtle::{
     debugger::{
         config::RunConfig,
         interface::{Shell, Terminal, VSCode},
-        window::{SdlWindow, Window},
+        window::{SdlWindow, VoidWindow, Window},
     },
     features::{FeatureConf, FeatureState},
     TProgram,
@@ -48,17 +48,17 @@ impl Source {
 }
 
 impl Display {
-    fn into_boxed(&self, title: &str) -> Box<dyn Window> {
+    fn as_boxed(&self, title: &str) -> Box<dyn Window> {
         match self {
-            Display::Sdl => Box::new(SdlWindow::new(title)),
-            Display::Void => Box::new((20.0, 15.0)),
+            Display::Sdl => Box::new(SdlWindow::create(title.to_string())),
+            Display::Void => Box::new(VoidWindow::default()),
         }
     }
 }
 
 impl RunOpt {
     fn config<'a>(&'a self, title: &str) -> RunConfig<'a, Box<dyn Window>, Terminal> {
-        RunConfig::new(&self.args).window(self.window.into_boxed(title))
+        RunConfig::new(&self.args).window(self.window.as_boxed(title))
     }
 }
 
@@ -84,10 +84,10 @@ fn main() {
             let prog = if let Some(file) = base {
                 Source { features, file }.get_prog()
             } else {
-                TProgram::parse("begin end".to_string(), false, features.feature_conf()).unwrap()
+                TProgram::parse("begin end", false, features.feature_conf()).unwrap()
             };
             RunConfig::new(&[])
-                .window(window.into_boxed("Turtle Shell"))
+                .window(window.as_boxed("Turtle Shell"))
                 .debug_in(Shell)
                 .exec(&prog);
         }

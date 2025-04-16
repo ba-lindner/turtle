@@ -1,28 +1,14 @@
 use std::{
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender},
     thread,
     time::Duration,
 };
 
 use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
 
-use crate::debugger::{TColor, TCoord};
-
-use super::{Window, WindowEvent};
-
-enum WindowCmd {
-    Draw(Color, Point, Point),
-    Clear,
-}
+use super::{ChannelWindow, WindowCmd, WindowEvent};
 
 pub struct SdlWindow {
-    title: String,
-    max_coord: (f64, f64),
-    cmds: Sender<WindowCmd>,
-    events: Receiver<WindowEvent>,
-}
-
-struct SdlImpl {
     canvas: Canvas<sdl2::video::Window>,
     event_pump: EventPump,
     cmds: Receiver<WindowCmd>,
@@ -34,24 +20,12 @@ const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 
 impl SdlWindow {
-    pub fn new(title: &str) -> Self {
-        Self {
-            title: title.to_string(),
-            max_coord: (0.0, 0.0),
-            cmds: mpsc::channel().0,
-            events: mpsc::channel().1,
-        }
+    pub fn create(title: String) -> ChannelWindow {
+        let (mut window, cmds, events) = ChannelWindow::construct();
+        window.init = Box::new(|| SdlWindow::spawn(title, cmds, events));
+        window
     }
 
-    fn map_coords(&self, point: TCoord) -> Point {
-        Point::new(
-            (WIDTH as f64 / 2.0 * (1.0 + point.0 / self.max_coord.0)) as i32,
-            (HEIGHT as f64 / 2.0 * (1.0 - point.1 / self.max_coord.1)) as i32,
-        )
-    }
-}
-
-impl SdlImpl {
     fn spawn(title: String, cmds: Receiver<WindowCmd>, events: Sender<WindowEvent>) {
         thread::spawn(move || {
             let sdl_context = sdl2::init().unwrap();
@@ -64,7 +38,7 @@ impl SdlImpl {
             let mut canvas = window.into_canvas().build().unwrap();
             canvas.clear();
             let event_pump = sdl_context.event_pump().unwrap();
-            let this = SdlImpl {
+            let this = SdlWindow {
                 canvas,
                 event_pump,
                 cmds,
@@ -75,6 +49,13 @@ impl SdlImpl {
         });
     }
 
+    fn map_coords(&self, coord: (f64, f64)) -> Point {
+        Point::new(
+            (WIDTH as f64 / 2.0 * (1.0 + coord.0)) as i32,
+            (HEIGHT as f64 / 2.0 * (1.0 - coord.1)) as i32,
+        )
+    }
+
     fn run(mut self) {
         loop {
             for cmd in self.cmds.try_iter() {
@@ -83,10 +64,18 @@ impl SdlImpl {
                         self.canvas.set_draw_color(Color::BLACK);
                         self.canvas.clear();
                     }
-                    WindowCmd::Draw(color, start, end) => {
+                    WindowCmd::Draw(from, to, col) => {
+                        let color = Color::RGB(
+                            (col.0 * 2.55) as u8,
+                            (col.1 * 2.55) as u8,
+                            (col.2 * 2.55) as u8,
+                        );
+                        let start = self.map_coords(from);
+                        let end = self.map_coords(to);
                         self.canvas.set_draw_color(color);
                         self.canvas.draw_line(start, end).unwrap();
                     }
+                    WindowCmd::Print(msg) => println!("{msg}"),
                 }
             }
             self.canvas.present();
@@ -118,7 +107,7 @@ impl SdlImpl {
             Event::MouseButtonDown {
                 x, y, mouse_btn, ..
             } => Some(WindowEvent::MouseClicked(
-                (x as f64, y as f64),
+                (2.0 * x as f64 / WIDTH as f64 - 1.0, 1.0 - y as f64 * 2.0 / HEIGHT as f64),
                 mouse_btn == sdl2::mouse::MouseButton::Left,
             )),
             _ => None,
@@ -126,53 +115,5 @@ impl SdlImpl {
         for evt in events {
             self.events.send(evt).unwrap();
         }
-    }
-}
-
-impl Window for SdlWindow {
-    fn init(&mut self, max_x: f64, max_y: f64) {
-        self.max_coord = (max_x, max_y);
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (evt_tx, evt_rx) = mpsc::channel();
-        let title = std::mem::take(&mut self.title);
-        SdlImpl::spawn(title, cmd_rx, evt_tx);
-        self.cmds = cmd_tx;
-        self.events = evt_rx;
-    }
-
-    fn max_coords(&mut self) -> &mut (f64, f64) {
-        &mut self.max_coord
-    }
-
-    fn draw(&mut self, from: TCoord, to: TCoord, col: TColor) {
-        let col = Color::RGB(
-            (col.0 * 2.55) as u8,
-            (col.1 * 2.55) as u8,
-            (col.2 * 2.55) as u8,
-        );
-        let start = self.map_coords(from);
-        let end = self.map_coords(to);
-        self.cmds.send(WindowCmd::Draw(col, start, end)).unwrap();
-    }
-
-    fn clear(&mut self) {
-        self.cmds.send(WindowCmd::Clear).unwrap();
-    }
-
-    fn print(&mut self, msg: &str) {
-        println!("Turtle says: {msg}");
-    }
-
-    fn events(&mut self) -> Vec<WindowEvent> {
-        self.events
-            .try_iter()
-            .map(|mut e| {
-                if let WindowEvent::MouseClicked((x, y), _) = &mut e {
-                    *x = (*x * 2.0 / WIDTH as f64 - 1.0) * self.max_coord.0;
-                    *y = (1.0 - *y * 2.0 / HEIGHT as f64) * self.max_coord.1;
-                }
-                e
-            })
-            .collect()
     }
 }

@@ -97,7 +97,7 @@ pub struct TProgram {
 
 impl TProgram {
     pub fn parse(
-        code: String,
+        code: &str,
         print_symbols: bool,
         mut features: FeatureConf,
     ) -> Result<Self, TurtleError> {
@@ -125,7 +125,7 @@ impl TProgram {
         features: FeatureConf,
     ) -> Result<Self, TurtleError> {
         let code = std::fs::read_to_string(file)?;
-        let mut this = Self::parse(code, print_symbols, features)?;
+        let mut this = Self::parse(&code, print_symbols, features)?;
         this.name = Some(file.to_string());
         Ok(this)
     }
@@ -230,7 +230,7 @@ pub enum MaybeRef<'r, T> {
     Ref(&'r T),
 }
 
-impl<'r, T> Deref for MaybeRef<'r, T> {
+impl<T> Deref for MaybeRef<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
