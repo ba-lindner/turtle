@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["turtle-web"]
+
 [package]
 name = "turtle"
 version = "0.3.2"

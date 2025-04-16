@@ -4,7 +4,7 @@ use crate::debugger::{TColor, TCoord};
 
 use super::{Window, WindowCmd, WindowEvent};
 
-type InitFn = Box<dyn FnOnce()>;
+type InitFn = Box<dyn FnOnce() + Send>;
 
 pub struct ChannelWindow {
     max_coord: (f64, f64),
