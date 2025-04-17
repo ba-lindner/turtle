@@ -1,11 +1,21 @@
-use std::{sync::{
-    mpsc::{self, Receiver, Sender},
-    Arc,
-}, thread};
+use std::{
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
+    thread,
+};
 
-use actix_web::{get, post, web::{Data, Json}, App, HttpServer};
+use axum::{
+    extract::State,
+    http::Method,
+    routing::{get, post},
+    Json, Router,
+};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use tokio::net::TcpListener;
+use tower_http::cors::{Any, CorsLayer};
 use turtle::debugger::{
     config::RunConfig,
     interface::Strings,
@@ -51,12 +61,9 @@ struct SharedState {
     outputs: Receiver<Result<String, String>>,
 }
 
-type AppState = Data<Arc<Mutex<SharedState>>>;
+type AppState = State<Arc<Mutex<SharedState>>>;
 
-type EmptyResponse = &'static str;
-const EMPTY_RESPONSE: EmptyResponse = "";
-
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let prog = TEST_CODE.parse().unwrap();
     let (window, commands, events) = ChannelWindow::construct();
@@ -75,48 +82,47 @@ async fn main() -> Result<(), std::io::Error> {
         outputs,
     };
     let state = Arc::new(Mutex::new(state));
-    HttpServer::new(move || {
-        App::new()
-            .service(exec_cmd)
-            .service(get_output)
-            .service(event)
-            .service(get_drawings)
-            .app_data(Data::new(Arc::clone(&state)))
-    })
-    .bind("127.0.0.1:8000")?
-    .run()
-    .await
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST])
+        .allow_origin(Any);
+    let app = Router::new()
+        .route("/exec", post(exec_cmd))
+        .route("/output", get(get_output))
+        .route("/event", post(event))
+        .route("/lines", get(get_drawings))
+        .layer(cors)
+        .with_state(state);
+    let listener = TcpListener::bind("127.0.0.1:8000").await?;
+    axum::serve(listener, app).await
 }
 
-#[post("/exec")]
-async fn exec_cmd(state: AppState, cmd: String) -> EmptyResponse {
+async fn exec_cmd(State(state): AppState, cmd: String) {
     state.lock().inputs.send(cmd).unwrap();
-    EMPTY_RESPONSE
 }
 
-#[get("/output")]
-async fn get_output(state: AppState) -> Json<Value> {
+async fn get_output(State(state): AppState) -> Json<Value> {
     Json(Value::Array(
         state
             .lock()
             .outputs
             .try_iter()
             .map(|out| match out {
-                Ok(msg) => json!({"kind":"ok","msg":msg}),
-                Err(msg) => json!({"kind":"err","msg":msg}),
+                Ok(msg) => json!({"kind": "ok", "msg": msg}),
+                Err(msg) => json!({"kind": "err", "msg": msg}),
             })
             .collect(),
     ))
 }
 
-#[post("/event")]
-async fn event(state: AppState, Json(coord): Json<(f64, f64)>) -> EmptyResponse {
-    state.lock().events.send(WindowEvent::MouseClicked(coord, true)).unwrap();
-    EMPTY_RESPONSE
+async fn event(State(state): AppState, Json(coord): Json<(f64, f64)>) {
+    state
+        .lock()
+        .events
+        .send(WindowEvent::MouseClicked(coord, true))
+        .unwrap();
 }
 
-#[get("/lines")]
-async fn get_drawings(state: Data<AppState>) -> Json<Value> {
+async fn get_drawings(State(state): AppState) -> Json<Value> {
     Json(Value::Array(
         state
             .lock()
@@ -129,8 +135,8 @@ async fn get_drawings(state: Data<AppState>) -> Json<Value> {
                     "end_x": to.0,
                     "end_y": to.1,
                 })),
-                _ => None
+                _ => None,
             })
-            .collect()
+            .collect(),
     ))
 }

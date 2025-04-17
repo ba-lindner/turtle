@@ -1,0 +1,41 @@
+.terminal {
+    background: black;
+    color: white;
+    font-family: Hack, monospace;
+    padding: 10px;
+    border-radius: 1rem;
+}
+
+.terminal #history {
+    max-height: 200px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+}
+
+.line {
+    display: table;
+    width: 100%;
+}
+
+.terminal span {
+    display: table-cell;
+    width: 0px;
+}
+
+.terminal .err {
+    color: red;
+}
+
+.terminal input {
+    display: table-cell;
+    background: black;
+    color: white;
+    font-size: 1em;
+    font-family: inherit;
+    width: 100%;
+    border: none;
+    outline: none;
+    padding: 0;
+}
