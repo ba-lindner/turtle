@@ -129,11 +129,10 @@ async fn get_drawings(State(state): AppState) -> Json<Value> {
             .commands
             .try_iter()
             .filter_map(|cmd| match cmd {
-                WindowCmd::Draw(from, to, _) => Some(json!({
-                    "start_x": from.0,
-                    "start_y": from.1,
-                    "end_x": to.0,
-                    "end_y": to.1,
+                WindowCmd::Draw(from, to, col) => Some(json!({
+                    "start": from,
+                    "end": to,
+                    "color": col
                 })),
                 _ => None,
             })
