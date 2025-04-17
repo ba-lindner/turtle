@@ -10,8 +10,8 @@
     max-height: 200px;
     overflow-x: hidden;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column-reverse;
+    font-size: 1em;
+    scroll-behavior: smooth;
 }
 
 .line {
@@ -19,12 +19,19 @@
     width: 100%;
 }
 
-.terminal span {
+.terminal #prefix {
     display: table-cell;
     width: 0px;
 }
 
-.terminal .err {
+.terminal .hist-line {
+    white-space: pre;
+    display: inline;
+    font-size: 1em;
+    font-family: inherit;
+}
+
+.terminal [kind=err] {
     color: red;
 }
 
