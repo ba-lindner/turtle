@@ -1,11 +1,11 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
     fmt::{Display, Write as _},
     sync::Arc,
     task::{Wake, Waker},
 };
 
+use indexmap::IndexMap;
 use turtle::Turtle;
 use varlist::VarList;
 use window::Window;
@@ -134,9 +134,9 @@ pub enum DbgEvent {
 }
 
 pub struct VarDump {
-    pub locals: HashMap<String, Value>,
-    pub globals: HashMap<String, Value>,
-    pub predef: HashMap<PredefVar, Value>,
+    pub locals: IndexMap<String, Value>,
+    pub globals: IndexMap<String, Value>,
+    pub predef: IndexMap<PredefVar, Value>,
 }
 
 pub struct TurtleInfo {

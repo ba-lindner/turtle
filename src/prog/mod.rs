@@ -1,6 +1,7 @@
 use std::{
     cell::{Ref, RefCell},
-    ops::Deref, str::FromStr,
+    ops::Deref,
+    str::FromStr,
 };
 
 use crate::{
@@ -228,9 +229,9 @@ impl TProgram {
 impl FromStr for TProgram {
     type Err = TurtleError;
 
-     fn from_str(s: &str) -> Result<Self, Self::Err> {
-         Self::parse(s, false, FeatureConf::default())
-     }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s, false, FeatureConf::default())
+    }
 }
 
 pub enum MaybeRef<'r, T> {

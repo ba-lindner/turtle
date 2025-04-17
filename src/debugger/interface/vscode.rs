@@ -1,7 +1,7 @@
 use crate::{
     debugger::{turtle::FuncType, window::Window, DbgEvent, Debugger, ProgEnd},
     pos::FilePos,
-    tokens::EventKind,
+    tokens::{EventKind, PredefVar},
 };
 
 use super::CommonInterface;
@@ -103,7 +103,7 @@ impl CommonInterface for VSCode {
                     if let Some(global) = var.strip_prefix('@') {
                         if let Some(val) = vars.globals.get(global) {
                             println!("{val}");
-                        } else if let Ok(pdv) = global.parse() {
+                        } else if let Ok(pdv) = global.parse::<PredefVar>() {
                             println!("{}", vars.predef[&pdv]);
                         }
                     } else if let Some(val) = vars.locals.get(&var) {
