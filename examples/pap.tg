@@ -1,3 +1,7 @@
+" +feature types
+" +feature events
+" +feature multithreading
+
 event mouse()
   path advance_step
 endevent

@@ -1,3 +1,6 @@
+" +feature types
+" +feature events
+
 event key(char: string)
   store char in @pressed
 endevent
