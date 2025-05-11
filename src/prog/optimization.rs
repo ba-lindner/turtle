@@ -132,8 +132,8 @@ impl Pos<Statement> {
                 }
             }
             Statement::DoLoop(expr, block) => match expr.is_const().map(to_num) {
-                Some(..0.0) => Vec::new(),
-                Some(1.0..2.0) => block.statements,
+                Some(c) if c < 1.0 => Vec::new(),
+                Some(c) if c < 2.0 => block.statements,
                 _ => vec![Statement::DoLoop(expr, block).attach_pos(pos)],
             },
             Statement::CounterLoop {

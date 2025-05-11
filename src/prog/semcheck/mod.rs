@@ -85,10 +85,10 @@ impl TProgram {
                     self.symbols
                         .iter()
                         .enumerate()
-                        .filter_map(|(idx, (_, ty))| {
-                            (*ty == Identified::GlobalVar
-                                && ctx.globals.get(&idx).is_none_or(|t| *t == ValType::Any))
-                            .then_some(idx)
+                        .filter_map(|(idx, (_, ty))| match (*ty, ctx.globals.get(&idx)) {
+                            (Identified::GlobalVar, None)
+                            | (Identified::GlobalVar, Some(ValType::Any)) => Some(idx),
+                            _ => None,
                         })
                         .collect(),
                 ));

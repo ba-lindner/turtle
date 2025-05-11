@@ -8,6 +8,7 @@ version = "0.3.2"
 authors = ["Bernhard Lindner lindbe.pi22@stud.gera.dhge.de"]
 edition = "2021"
 description = "Compiler, Interpreter and Debugger for the turtle language"
+rust-version = "1.78"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

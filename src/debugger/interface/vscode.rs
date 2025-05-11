@@ -70,7 +70,7 @@ impl CommonInterface for VSCode {
             VSCodeCmd::Break(line) => _ = run.add_breakpoint(FilePos::new(line, 1)),
             VSCodeCmd::RBreak(line) => {
                 for bp in run.list_breakpoints() {
-                    if line.is_none_or(|l| bp.pos.line == l) {
+                    if line.is_none() || line.is_some_and(|l| bp.pos.line == l) {
                         run.delete_breakpoint(bp.id);
                     }
                 }
