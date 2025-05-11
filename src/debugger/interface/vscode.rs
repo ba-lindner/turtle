@@ -6,6 +6,7 @@ use crate::{
 
 use super::CommonInterface;
 
+/// Commands for [`VSCode`] debug interface.
 pub enum VSCodeCmd {
     StepOver,
     StepIn,
@@ -18,6 +19,12 @@ pub enum VSCodeCmd {
     Evaluate(usize, String),
 }
 
+/// Alternative terminal-based [`DbgInterface`](super::DbgInterface).
+/// 
+/// This interface offers a different set of commands and
+/// is intended to be used as the backend of a vscode extension.
+/// 
+/// [`DbgInterface`](super::DbgInterface) is implemented via [`CommonInterface`].
 pub struct VSCode;
 
 impl CommonInterface for VSCode {

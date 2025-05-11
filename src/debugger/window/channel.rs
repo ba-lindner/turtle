@@ -6,14 +6,37 @@ use super::{Window, WindowCmd, WindowEvent};
 
 type InitFn = Box<dyn FnOnce() + Send>;
 
+/// A generic channel-based window.
+/// 
+/// This window doesn't do much on its own,
+/// but simply receives event from a channel
+/// and sends actions to another one. Coordinates
+/// are normalized to be in the range (-1 .. 1).
+/// 
+/// While this in itself is not too useful, it allows
+/// for some nice things:
+/// * Testing is simplified as events can be read from
+///   a vec, outputs written to a vec and afterwards
+///   be compared with the expected outcome.
+/// * [`SdlWindow`](super::SdlWindow) uses this
+///   for significant performance improvements
+/// * The turtle web server also is built on this
+/// 
+/// The key benefit of using a [`ChannelWindow`] lies
+/// in the possibility to handle window events somewhere
+/// else instead of deep within the debugger.
 pub struct ChannelWindow {
     max_coord: (f64, f64),
+    /// Init function
+    /// 
+    /// This exists mainly for [`SdlWindow`](super::SdlWindow).
     pub(super) init: InitFn,
     commands: Sender<WindowCmd>,
     events: Receiver<WindowEvent>,
 }
 
 impl ChannelWindow {
+    /// Create a new [`ChannelWindow`] instance from two given channels.
     pub fn new(commands: Sender<WindowCmd>, events: Receiver<WindowEvent>, init: InitFn) -> Self {
         Self {
             max_coord: (0.0, 0.0),
@@ -23,6 +46,7 @@ impl ChannelWindow {
         }
     }
 
+    /// Create a new [`ChannelWindow`] instance together with two channels.
     pub fn construct() -> (Self, Receiver<WindowCmd>, Sender<WindowEvent>) {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (evt_tx, evt_rx) = mpsc::channel();

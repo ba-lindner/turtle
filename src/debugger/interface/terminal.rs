@@ -10,6 +10,12 @@ use super::{
     CommonInterface,
 };
 
+/// The default [`DbgInterface`](super::DbgInterface).
+/// 
+/// This uses the common command format defined in [`super::commands`].
+/// Input is read from stdin and output printed to stdout / stderr.
+/// 
+/// [`DbgInterface`](super::DbgInterface) is implemented via [`CommonInterface`].
 pub struct Terminal;
 
 impl CommonInterface for Terminal {

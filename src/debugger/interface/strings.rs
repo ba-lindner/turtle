@@ -10,14 +10,31 @@ use super::{
     CommonInterface,
 };
 
+/// The "output" type of the [`Strings`] debug interface.
 type StringRes = Result<String, String>;
 
+/// Generic [`DbgInterface`](super::DbgInterface) with default commands.
+/// 
+/// This type offers the same user interface as the default
+/// [`Terminal`](super::Terminal) one, but uses an [`Iterator`] for input
+/// and a [`mpsc::channel`] for output instead of stdin/stdout.
+/// All parsing from strings and formatting into strings is also
+/// handled by this interface.
+/// 
+/// Since [`Receiver`] also implements [`IntoIterator`], this
+/// interface can also be used with a channel for both input
+/// and output.
+/// 
+/// [`DbgInterface`](super::DbgInterface) is implemented via [`CommonInterface`].
 pub struct Strings<I> {
+    /// Iterator to draw user input from
     inputs: I,
+    /// Sender to dump output into
     outputs: Sender<StringRes>,
 }
 
 impl Strings<std::iter::Empty<String>> {
+    /// Construct a new [`Strings`] instance together with the output channel.
     pub fn construct<I: IntoIterator<Item = String>>(
         inp: I,
     ) -> (Strings<I::IntoIter>, Receiver<StringRes>) {
@@ -27,6 +44,7 @@ impl Strings<std::iter::Empty<String>> {
 }
 
 impl<I: Iterator<Item = String>> Strings<I> {
+    /// Construct a new [`Strings`] instance from an already existing channel for output.
     pub fn new(inputs: I, outputs: Sender<StringRes>) -> Self {
         Self { inputs, outputs }
     }

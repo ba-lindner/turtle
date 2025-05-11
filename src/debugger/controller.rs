@@ -250,6 +250,12 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         }
     }
 
+    /// Execute a single statement.
+    /// 
+    /// This function returns:
+    /// * `Err(end)` if the program finished
+    /// * `Ok(None)` if the turtle finished or a breakpoint was hit
+    /// * `Ok(Some(kind))` if a statement was executed
     pub fn step_single(&mut self) -> Result<Option<StmtKind>, ProgEnd> {
         self.after_sync();
         let res = self.active().step_single();
@@ -271,23 +277,38 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         }
     }
 
+    /// Execute a single statement or function call.
     pub fn step_over(&mut self) -> Result<(), ProgEnd> {
         let stack_size = self.active().stack_size();
         while self.step_single()?.is_some() && self.active().stack_size() > stack_size {}
         Ok(())
     }
 
+    /// Leave the current function.
+    /// 
+    /// This will execute all remaining statements in the
+    /// current function.
     pub fn step_out(&mut self) -> Result<(), ProgEnd> {
         let stack_size = self.active().stack_size();
         while self.step_single()?.is_some() && self.active().stack_size() >= stack_size {}
         Ok(())
     }
 
+    /// Executes statements until the first statement with the given kind.
+    /// 
+    /// See [`StmtKind`] for details on which statement is considered which kind.
     pub fn step_kind(&mut self, kind: StmtKind) -> Result<(), ProgEnd> {
         while self.step_single()?.is_some_and(|k| k < kind) {}
         Ok(())
     }
 
+    /// Executes statements until all turtles are synced.
+    /// 
+    /// This is _almost_ identical to [`step_kind`](Self::step_kind()) with [`StmtKind::Draw`].
+    /// However, while `step_kind` stops _after_ the statement, this will stop
+    /// _during_ the statement and thus return in a state where all
+    /// turtles are synced, allowing the user to [switch turtles](Self::select_turtle).
+    /// This is **not** the case for `step_kind`.
     pub fn step_sync(&mut self) -> Result<(), ProgEnd> {
         self.after_sync();
         let res = self.active().run_breakpoints();
@@ -298,6 +319,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         Ok(())
     }
 
+    /// Run the program until a breakpoint is hit.
     pub fn run_breakpoints(&mut self) -> Result<(), ProgEnd> {
         loop {
             self.after_sync();

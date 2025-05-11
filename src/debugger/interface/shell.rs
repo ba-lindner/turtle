@@ -9,16 +9,53 @@ use crate::{
 
 use super::DbgInterface;
 
+/// A turtle shell.
+/// 
+/// This is a [`DbgInterface`] that by default executes
+/// a statement or defines a function, requiring all
+/// commands to be prefixed with `'/'`.
+/// Additionally, code can span multiple lines.
+/// 
+/// In contrast to other interfaces, far less commands
+/// are supported, as a shell is somewhat different from
+/// a debugger. The available commands are represented
+/// by [`ShellCmd`].
+/// 
+/// No multithreading or eventing is supported by the
+/// shell as of now. While events can be defined and
+/// the `split` statement can be executed, the turtles
+/// spawned this way will never do anything (besides
+/// taking up memory).
 pub struct Shell;
 
+/// Commands available in the turtle shell.
 enum ShellCmd {
+    /// Execute some statement.
     Exec(String),
+    /// Define a function.
+    /// 
+    /// This can be a path, a calculation or
+    /// either event.
     Func(String),
+    /// Undefine a function.
+    /// 
+    /// If no function is specified,
+    /// all functions are undefined.
     Undef(Option<FuncType>),
+    /// Print the current position.
+    /// 
+    /// Unlike [`DbgCommand::CurrPos`](super::commands::DbgCommand::CurrPos),
+    /// this prints the current turtle position.
     Pos,
 }
 
+/// The help for shell commands
 const SHELL_HELP: &str = "available commands:
+  <code>          - execute statement or define function 
+                    can span multiple lines
+  !<stmt>         - execute statement
+                    mainly used to disambiguate
+                    a path definition from a path call
   /pos            - current position
   /undef [<func>] - undefine function. If no <func> is given,
                     all functions are removed.
@@ -30,17 +67,58 @@ const SHELL_HELP: &str = "available commands:
   /help           - this help
   /quit           - exit shell";
 
+/// Possible results for trying to parse potentially unfinished user input.
+/// 
+/// Especially the [`Finished`](TryParseResult::Finished) and [`Unfinished`](TryParseResult::Unfinished)
+/// variants are important to note. As shell inputs can span multiple lines,
+/// the shell needs to keep track of when to append user input to the
+/// buffer and when to clear the buffer.
 enum TryParseResult {
+    /// User input was successfully parsed into a command.
+    /// 
+    /// This obviously clears the buffer.
     Cmd(ShellCmd),
+    /// User exited the shell.
+    /// 
+    /// As the buffer is soon to be deallocated,
+    /// no further action is neccessary.
     Quit,
+    /// Finished handling current input.
+    /// 
+    /// This is the indication to clear the buffer.
+    /// 
+    /// Possible causes:
+    /// * The help was printed
+    /// * An error occurred (and was already reported)
     Finished,
+    /// User input is incomplete.
+    /// 
+    /// This is the indication to append the next line
+    /// to the buffer.
+    /// 
+    /// It is returned if the parser returns
+    /// `Err(ParseError::UnexpectedEnd)`.
     Unfinished,
 }
 
 impl Shell {
+    /// Attempt to parse current user input.
+    /// 
+    /// There are multiple things to consider:
+    /// * If input starts with `'/'`, the remainder is parsed as a command.
+    ///   This will never return [`TryParseResult::Unfinished`].
+    /// * If input starts with `'!'`, the remainder is parsed as a statement.
+    ///   This might return [`TryParseResult::Unfinished`].
+    /// * Otherwise, the input is first parsed as a function. If the parser
+    ///   reports the first token to be unbefitting of starting a function,
+    ///   the input is then parsed as a statement. Other errors (with the
+    ///   exception of [`ParseError::UnexpectedEnd`]) are reported to the
+    ///   user, returning [`TryParseResult::Finished`].
+    /// 
+    /// Return values are explained in [`TryParseResult`].
     fn try_parse<'p, W: Window + 'p>(
         &self,
-        run: &mut Debugger<'p, W>,
+        run: &Debugger<'p, W>,
         inp: &str,
     ) -> TryParseResult {
         if inp.is_empty() {
@@ -70,7 +148,7 @@ impl Shell {
                         },
                         "calculation" => {
                             let Some(name) = words.next() else { err!("missing calculation name"); };
-                            let Some(id) = sym(name) else {err!("no calculation named {name}"); };
+                            let Some(id) = sym(name) else { err!("no calculation named {name}"); };
                             Some(FuncType::Calc(id))
                         },
                         "event" => match_extended!(words.next() => {
@@ -131,7 +209,13 @@ impl Shell {
         }
     }
 
-    fn get_command<'p, W: Window + 'p>(&self, run: &mut Debugger<'p, W>) -> Option<ShellCmd> {
+    /// Obtain the next command.
+    /// 
+    /// Like [`CommonInterface::get_command`](super::CommonInterface::get_command),
+    /// this returns [`None`] if the user exited. However, as parsing
+    /// requires a reference to the [`Debugger`],
+    /// [`CommonInterface`](super::CommonInterface) cannot be used.
+    fn get_command<'p, W: Window + 'p>(&self, run: &Debugger<'p, W>) -> Option<ShellCmd> {
         let mut cmd = String::new();
         loop {
             if cmd.is_empty() {
@@ -151,6 +235,7 @@ impl Shell {
         }
     }
 
+    /// Execute the command obtained by [`get_command`](Shell::get_command).
     fn exec_cmd<'p, W: Window + 'p>(
         &self,
         run: &mut Debugger<'p, W>,

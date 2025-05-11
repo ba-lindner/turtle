@@ -17,6 +17,7 @@ pub mod pos;
 mod prog;
 pub mod tokens;
 
+/// A map of all identifiers in a turtle program
 pub type SymbolTable = IndexMap<String, Identified>;
 
 /// Types of things that have an identifier

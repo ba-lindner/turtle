@@ -1,30 +1,68 @@
+//! Common debugger commands
+//! 
+//! This module provides an enum for common debugger commands, [`DbgCommand`],
+//! aswell as a function for parsing it, [`parse_command`].
+
 use std::num::ParseIntError;
 
 use crate::pos::{FilePos, FilePosParseErr};
 
+/// Turtle debugger commands
+/// 
+/// This enum lists all commands available for the
+/// [default turtle debugger](super::Terminal).
+/// It is very similar to the
+/// [available debug API](crate::debugger::Debugger).
+/// 
+/// Please take note that all `Step`-variants will also stop
+/// on encountering a breakpoint, even if breakpoints are
+/// only mentioned for [`Run`](DbgCommand::Run).
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum DbgCommand {
+    /// Run [`DebugController::step_single()`](crate::debugger::Debugger::step_single()) n times.
     StepSingle(usize),
+    /// Run [`DebugController::step_over()`](crate::debugger::Debugger::step_over()) n times.
     StepOver(usize),
+    /// Run [`DebugController::step_out()`](crate::debugger::Debugger::step_out()).
     StepOut,
+    /// Run [`DebugController::step_kind()`](crate::debugger::Debugger::step_kind())
+    /// with [`StmtKind::Turtle`](crate::tokens::StmtKind::Turtle).
     StepTurtle,
+    /// Run [`DebugController::step_kind()`](crate::debugger::Debugger::step_kind())
+    /// with [`StmtKind::Draw`](crate::tokens::StmtKind::Draw).
     StepDraw,
+    /// Run [`DebugController::step_sync()`](crate::debugger::Debugger::step_sync()).
     StepSync,
+    /// Run [`DebugController::run_breakpoints()`](crate::debugger::Debugger::run_breakpoints()).
     Run,
+    /// Call [`DebugController::toggle_narrate()`](crate::debugger::Debugger::toggle_narrate()).
     ToggleNarrate,
+    /// Print [`DebugController::vardump()`](crate::debugger::Debugger::vardump())
+    /// with [`None`] (active frame).
     Vardump,
+    /// Print [`DebugController::curr_pos()`](crate::debugger::Debugger::curr_pos()).
     CurrPos,
+    /// Print [`DebugController::list_turtles()`](crate::debugger::Debugger::list_turtles()).
     ListTurtles,
+    /// Call [`DebugController::select_turtle()`](crate::debugger::Debugger::select_turtle()).
     SelectTurtle(usize),
+    /// Print [`DebugController::list_turtles()`](crate::debugger::Debugger::list_turtles()).
     ListBreakpoints,
+    /// Call [`DebugController::add_breakpoint()`](crate::debugger::Debugger::add_breakpoint()).
     AddBreakpoint(FilePos),
+    /// Call [`DebugController::delete_breakpoint()`](crate::debugger::Debugger::delete_breakpoint()).
     DeleteBreakpoint(usize),
+    /// Call [`DebugController::enable_breakpoint()`](crate::debugger::Debugger::enable_breakpoint()).
     EnableBreakpoint(usize, bool),
+    /// Print [`DebugController::stacktrace()`](crate::debugger::Debugger::stacktrace()).
     Stacktrace,
+    /// Print [`DebugController::eval_expr()`](crate::debugger::Debugger::eval_expr()).
     Evaluate(String),
+    /// Run [`DebugController::exec_stmt()`](crate::debugger::Debugger::exec_stmt()).
     Execute(String),
 }
 
+/// Help for all commands
 const DEBUG_HELP: &str = "available commands:
   run                     - run until breakpoint is hit
   step ...                - execute single steps
@@ -40,6 +78,7 @@ const DEBUG_HELP: &str = "available commands:
   help [step|breakpoint]  - show this help / detailed help for subcommand
   quit                    - exit the debugger";
 
+/// Help for step commands
 const DEBUG_HELP_STEP: &str = "subcommands for step:
   step [<count>]          - execute <count> statements
                             <count> defaults to one
@@ -52,6 +91,7 @@ const DEBUG_HELP_STEP: &str = "subcommands for step:
                             this is almost identical to step draw,
                             but allows you to select the active turtle";
 
+/// Help for breakpoint commands
 const DEBUG_HELP_BP: &str = "subcommands for breakpoint:
   breakpoint              - list breakpoints
   breakpoint add <pos>    - add breakpoint at <pos>
@@ -59,6 +99,10 @@ const DEBUG_HELP_BP: &str = "subcommands for breakpoint:
   breakpoint enable <id>  - enable breakpoint <id>
   breakpoint disable <id> - disable breakpoint <id>";
 
+/// Extends a [`str`] to any of the given words if it is a prefix.
+/// 
+/// This can be used to easily allow users to only enter the prefix
+/// of a command.
 pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
     for word in words {
         if word.starts_with(inp) {
@@ -68,10 +112,17 @@ pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
     inp
 }
 
+/// Reasons why no command was returned
+/// 
+/// This is mainly used to handle quasi-commands like `quit` and `help`.
 pub enum NoCmdReason<'l> {
+    /// User wants to quit
     Quit,
+    /// Show given help
     Help(&'static str),
+    /// Empty input
     Empty,
+    /// Error parsing comman
     Err(CmdError<'l>),
 }
 
@@ -101,6 +152,7 @@ pub enum CmdError<'l> {
     ParsePos(#[from] FilePosParseErr),
 }
 
+/// Parse a line of user input into a command
 pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
     let mut words = inp.split_whitespace();
     Ok(match_extended!(words.next() => {
@@ -137,6 +189,7 @@ pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
     }))
 }
 
+/// Parse the various `step`-commands
 fn step_command<'w>(mut words: impl Iterator<Item = &'w str>) -> Result<DbgCommand, CmdError<'w>> {
     Ok(match_extended!(words.next() => {
         None => DbgCommand::StepSingle(1),
@@ -149,6 +202,7 @@ fn step_command<'w>(mut words: impl Iterator<Item = &'w str>) -> Result<DbgComma
     }))
 }
 
+/// Parse the various `breakpoint`-commands
 fn breakpoint_command<'w>(
     mut words: impl Iterator<Item = &'w str>,
 ) -> Result<DbgCommand, CmdError<'w>> {

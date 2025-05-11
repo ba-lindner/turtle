@@ -1,3 +1,8 @@
+//! Compiling turtle graphics programs
+//! 
+//! Currently, only transpiling to C is available via [`CComp`].
+//! Additionally, no features are implemented.
+
 use std::io::Write;
 
 use crate::tokens::{
@@ -11,12 +16,28 @@ mod context;
 
 // Aufwand bisher: ~8h
 
+/// A turtle-to-C compiler.
+/// 
+/// Using [`CComp::compile()`], this can be used to transpile
+/// a turtle program into C. The resulting C program then needs
+/// to be compiled with a regular C compiler and linked with both
+/// `turtleinterf.o` and `sdlinterf.o`, which will **not** be done
+/// by this transpiler.
+/// 
+/// NOTE: this is not well tested (especially since lexer and
+/// parser were changed to handle additional features), thus
+/// errors and miscompilations are to be expected.
 pub struct CComp {
+    /// The program to compile
     prog: TProgram,
+    /// The file to compile to
     filename: String,
 }
 
 impl CComp {
+    /// Create a new compiler for a given turtle program.
+    /// 
+    /// TODO: panic if any features are enabled
     pub fn new(prog: TProgram) -> Self {
         Self {
             prog,
@@ -24,10 +45,12 @@ impl CComp {
         }
     }
 
+    /// Set the output file
     pub fn set_filename(&mut self, name: impl Into<String>) {
         self.filename = name.into();
     }
 
+    /// Run the compilation
     pub fn compile(&self) {
         let context = Context::new();
         // includes
@@ -109,6 +132,7 @@ impl CComp {
         }
     }
 
+    /// Compile a block of statements
     fn comp_block(&self, ctx: &mut Context, block: &Block) -> Vec<String> {
         let mut res = Vec::new();
         for stmt in &block.statements {
@@ -123,6 +147,16 @@ impl CComp {
         res
     }
 
+    /// Compile a single statement
+    /// 
+    /// As control structures also are a single statement,
+    /// this function will regularly return more than one line
+    /// of code. Additionally, there are statements like `walk home`
+    /// that are transpiled to multiple C statements.
+    /// 
+    /// If any inner blocks are present, they will be indented relative
+    /// to `stmt`. Thus, any indentation happening on the returned lines
+    /// should happen on all lines equally. The first line is never indented.
     fn comp_stmt(&self, ctx: &mut Context, stmt: &Statement) -> Vec<String> {
         match stmt {
             Statement::MoveDist { dist, draw, back } => {
@@ -253,6 +287,11 @@ impl CComp {
         }
     }
 
+    /// Compile an expression into the C equivalent.
+    /// 
+    /// Since turtle conditions are now represented as
+    /// expressions with return type [`Boolean`](crate::tokens::ValType::Boolean),
+    /// this function is also responsible for compiling conditions.
     fn comp_expr(&self, ctx: &mut Context, expr: &Expr) -> String {
         match &expr.kind {
             ExprKind::Const(val) => format!("{val}"),
@@ -302,6 +341,12 @@ impl CComp {
         }
     }
 
+    /// "Compile" a variable
+    /// 
+    /// This function is mostly used to get the appropriate name
+    /// for a variable. However, in certain situations (distinguished
+    /// by [`VarAct::Init`]), `double <name>` might be returned
+    /// to declare the variable.
     fn comp_var(&self, ctx: &mut Context, var: &Variable, act: VarAct) -> String {
         match &var.kind {
             VariableKind::Local(id, _) => {
@@ -340,28 +385,11 @@ impl CComp {
         }
     }
 
-    // fn comp_cond(&self, ctx: &mut Context, cond: &Cond) -> String {
-    //     match cond {
-    //         Cond::Bracket(sub) => format!("({})", self.comp_cond(ctx, sub)),
-    //         Cond::Cmp(lhs, op, rhs) => format!(
-    //             "{} {op} {}",
-    //             self.comp_expr(ctx, lhs),
-    //             self.comp_expr(ctx, rhs)
-    //         ),
-    //         Cond::And(lhs, rhs) => format!(
-    //             "{} && {}",
-    //             self.comp_cond(ctx, lhs),
-    //             self.comp_cond(ctx, rhs)
-    //         ),
-    //         Cond::Or(lhs, rhs) => format!(
-    //             "{} || {}",
-    //             self.comp_cond(ctx, lhs),
-    //             self.comp_cond(ctx, rhs)
-    //         ),
-    //         Cond::Not(sub) => format!("!{}", self.comp_cond(ctx, sub)),
-    //     }
-    // }
-
+    /// Convenience function to compile a list of arguments.
+    /// 
+    /// This will iterate over `args`, apply `map` on each element,
+    /// and return a string composed of the results of the mapping,
+    /// with `", "` in between each element.
     fn comp_args<T, F: FnMut(&T) -> String>(&self, args: &[T], map: F) -> String {
         let mut full = args
             .iter()
@@ -374,6 +402,11 @@ impl CComp {
         }
     }
 
+    /// Read an identifier from the symbol table.
+    /// 
+    /// If the identifier starts with `__` (two underscores),
+    /// `__loc` is prepended to avoid any possible conflicts with
+    /// built-in identifiers, such as `__ttl_x` etc.
     fn get_ident(&self, id: usize) -> String {
         let res = self
             .prog
@@ -389,9 +422,21 @@ impl CComp {
     }
 }
 
+/// Actions on variables
+/// 
+/// This is used by [`CComp::comp_var()`] to prevent
+/// writes to read-only global predefined variables and
+/// allow declaration and initialisation in appropriate
+/// positions.
 #[derive(PartialEq, Debug)]
 enum VarAct {
+    /// Read the value of a variable
     Read,
+    /// Write a value to a variable
     Write,
+    /// Initialise a variable
+    /// 
+    /// Similar to [`Write`](VarAct::Write), but indicates
+    /// a position where a variable can be declared.
     Init,
 }
