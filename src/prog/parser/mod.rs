@@ -168,7 +168,7 @@ impl<'s, 'f> Parser<'s, 'f> {
     fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         let args = self.parse_proto_args(true)?;
-        self.set_ident_type(name, Identified::Path(args.len()))?;
+        self.set_ident_type(name, Identified::Path)?;
         Ok(ParseToken::PathDef(PathDef {
             name,
             args,
@@ -180,7 +180,7 @@ impl<'s, 'f> Parser<'s, 'f> {
         let name = self.match_identifier()?;
         let args = self.parse_proto_args(false)?;
         let ret_ty = self.parse_type_hint()?;
-        self.set_ident_type(name, Identified::Calc(args.len()))?;
+        self.set_ident_type(name, Identified::Calc)?;
         let stmts = self.parse_statements(begin, Keyword::Returns)?;
         let ret = self.parse_expr()?;
         self.expect_keyword(Keyword::Endcalc)?;
@@ -406,7 +406,7 @@ impl<'s, 'f> Parser<'s, 'f> {
             LexToken::Identifier(id) => {
                 if self.lookahead() == Some(LexToken::Symbol('(')) {
                     let args = self.parse_args(None)?;
-                    self.set_ident_type(id, Identified::Calc(args.len()))?;
+                    self.set_ident_type(id, Identified::Calc)?;
                     ExprKind::CalcCall(id, args).at(start, self.last_pos())
                 } else {
                     self.set_ident_type(id, Identified::LocalVar)?;

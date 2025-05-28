@@ -142,7 +142,7 @@ fn conversions() {
 fn functions() {
     // calc(sin(1), cos(tan(2))) + sqrt(rand(0, 10))
     parse_this!(
-        parser (Calc(2)) =>
+        parser (Calc) =>
         Identifier(0),
         Symbol('('),
         Keyword(Sin),

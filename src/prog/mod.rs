@@ -137,13 +137,11 @@ impl TProgram {
                 Identified::Unknown => {
                     return Err(TurtleError::UnidentifiedIdentifier(id));
                 }
-                Identified::Path(args) => {
-                    let path = self.get_path(id)?;
-                    assert_eq!(path.args.len(), *args);
+                Identified::Path => {
+                    self.get_path(id)?;
                 }
-                Identified::Calc(args) => {
-                    let calc = self.get_calc(id)?;
-                    assert_eq!(calc.args.len(), *args);
+                Identified::Calc => {
+                    self.get_calc(id)?;
                 }
                 _ => {}
             }

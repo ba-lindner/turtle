@@ -128,7 +128,7 @@ impl Parser<'_, '_> {
         } else {
             Vec::new()
         };
-        self.set_ident_type(name, Identified::Path(args.len()))?;
+        self.set_ident_type(name, Identified::Path)?;
         if split {
             Ok(Statement::Split(name, args))
         } else {

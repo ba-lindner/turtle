@@ -23,10 +23,15 @@ pub type SymbolTable = IndexMap<String, Identified>;
 /// Types of things that have an identifier
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Identified {
+    /// Initial value
     Unknown,
-    Path(usize),
-    Calc(usize),
+    /// Path
+    Path,
+    /// Calculation
+    Calc,
+    /// Global variable
     GlobalVar,
+    /// Local variable
     LocalVar,
 }
 
@@ -34,8 +39,8 @@ impl Display for Identified {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Identified::Unknown => write!(f, "unknown"),
-            Identified::Path(args) => write!(f, "path with {args} arguments"),
-            Identified::Calc(args) => write!(f, "calculation with {args} arguments"),
+            Identified::Path => write!(f, "path"),
+            Identified::Calc => write!(f, "calculation"),
             Identified::GlobalVar => write!(f, "global variable"),
             Identified::LocalVar => write!(f, "local variable"),
         }
