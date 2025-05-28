@@ -251,7 +251,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     /// Execute a single statement.
-    /// 
+    ///
     /// This function returns:
     /// * `Err(end)` if the program finished
     /// * `Ok(None)` if the turtle finished or a breakpoint was hit
@@ -285,7 +285,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     /// Leave the current function.
-    /// 
+    ///
     /// This will execute all remaining statements in the
     /// current function.
     pub fn step_out(&mut self) -> Result<(), ProgEnd> {
@@ -295,7 +295,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     /// Executes statements until the first statement with the given kind.
-    /// 
+    ///
     /// See [`StmtKind`] for details on which statement is considered which kind.
     pub fn step_kind(&mut self, kind: StmtKind) -> Result<(), ProgEnd> {
         while self.step_single()?.is_some_and(|k| k < kind) {}
@@ -303,7 +303,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     /// Executes statements until all turtles are synced.
-    /// 
+    ///
     /// This is _almost_ identical to [`step_kind`](Self::step_kind()) with [`StmtKind::Draw`].
     /// However, while `step_kind` stops _after_ the statement, this will stop
     /// _during_ the statement and thus return in a state where all

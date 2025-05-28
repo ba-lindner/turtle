@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 /// A compilation context
-/// 
+///
 /// A context that records whether variables have
 /// been initialized or not aswell as a loop counter
 /// used to generate names for loop variables.
@@ -9,11 +9,11 @@ pub struct Context {
     /// Variables available or declared in this context
     vars: HashMap<usize, bool>,
     /// Loop counter
-    /// 
+    ///
     /// see [`Self::loop_index()`] for details
     loops: usize,
     /// Nesting depth of the context
-    /// 
+    ///
     /// This is `0` for function contexts
     /// and a higher value for control structures
     pub nesting: usize,
@@ -35,7 +35,7 @@ impl Context {
     }
 
     /// Check if a variable should be declared
-    /// 
+    ///
     /// For contexts that represent control structures
     /// (such as if/else or loops), this will always return true.
     /// This is required as all (local) variables have function-wide
@@ -50,7 +50,7 @@ impl Context {
     }
 
     /// List uninitialized variables
-    /// 
+    ///
     /// Again, behaviour differs for function and inner contexts.
     /// As only functions may declare variables, only those contexts return
     /// any values from this function.
@@ -66,7 +66,7 @@ impl Context {
     }
 
     /// Get the next loop index
-    /// 
+    ///
     /// `do <x> times ... done` loops require an additional variable that
     /// is not present in the turtle program. To avoid multiple variables with the
     /// same name in the C output, a counter is used and increased for each loop.

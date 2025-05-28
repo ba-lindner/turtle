@@ -10,17 +10,17 @@ use crate::{
 use super::DbgInterface;
 
 /// A turtle shell.
-/// 
+///
 /// This is a [`DbgInterface`] that by default executes
 /// a statement or defines a function, requiring all
 /// commands to be prefixed with `'/'`.
 /// Additionally, code can span multiple lines.
-/// 
+///
 /// In contrast to other interfaces, far less commands
 /// are supported, as a shell is somewhat different from
 /// a debugger. The available commands are represented
 /// by [`ShellCmd`].
-/// 
+///
 /// No multithreading or eventing is supported by the
 /// shell as of now. While events can be defined and
 /// the `split` statement can be executed, the turtles
@@ -33,17 +33,17 @@ enum ShellCmd {
     /// Execute some statement.
     Exec(String),
     /// Define a function.
-    /// 
+    ///
     /// This can be a path, a calculation or
     /// either event.
     Func(String),
     /// Undefine a function.
-    /// 
+    ///
     /// If no function is specified,
     /// all functions are undefined.
     Undef(Option<FuncType>),
     /// Print the current position.
-    /// 
+    ///
     /// Unlike [`DbgCommand::CurrPos`](super::commands::DbgCommand::CurrPos),
     /// this prints the current turtle position.
     Pos,
@@ -68,34 +68,34 @@ const SHELL_HELP: &str = "available commands:
   /quit           - exit shell";
 
 /// Possible results for trying to parse potentially unfinished user input.
-/// 
+///
 /// Especially the [`Finished`](TryParseResult::Finished) and [`Unfinished`](TryParseResult::Unfinished)
 /// variants are important to note. As shell inputs can span multiple lines,
 /// the shell needs to keep track of when to append user input to the
 /// buffer and when to clear the buffer.
 enum TryParseResult {
     /// User input was successfully parsed into a command.
-    /// 
+    ///
     /// This obviously clears the buffer.
     Cmd(ShellCmd),
     /// User exited the shell.
-    /// 
+    ///
     /// As the buffer is soon to be deallocated,
     /// no further action is neccessary.
     Quit,
     /// Finished handling current input.
-    /// 
+    ///
     /// This is the indication to clear the buffer.
-    /// 
+    ///
     /// Possible causes:
     /// * The help was printed
     /// * An error occurred (and was already reported)
     Finished,
     /// User input is incomplete.
-    /// 
+    ///
     /// This is the indication to append the next line
     /// to the buffer.
-    /// 
+    ///
     /// It is returned if the parser returns
     /// `Err(ParseError::UnexpectedEnd)`.
     Unfinished,
@@ -103,7 +103,7 @@ enum TryParseResult {
 
 impl Shell {
     /// Attempt to parse current user input.
-    /// 
+    ///
     /// There are multiple things to consider:
     /// * If input starts with `'/'`, the remainder is parsed as a command.
     ///   This will never return [`TryParseResult::Unfinished`].
@@ -114,13 +114,9 @@ impl Shell {
     ///   the input is then parsed as a statement. Other errors (with the
     ///   exception of [`ParseError::UnexpectedEnd`]) are reported to the
     ///   user, returning [`TryParseResult::Finished`].
-    /// 
+    ///
     /// Return values are explained in [`TryParseResult`].
-    fn try_parse<'p, W: Window + 'p>(
-        &self,
-        run: &Debugger<'p, W>,
-        inp: &str,
-    ) -> TryParseResult {
+    fn try_parse<'p, W: Window + 'p>(&self, run: &Debugger<'p, W>, inp: &str) -> TryParseResult {
         if inp.is_empty() {
             return TryParseResult::Finished;
         }
@@ -210,7 +206,7 @@ impl Shell {
     }
 
     /// Obtain the next command.
-    /// 
+    ///
     /// Like [`CommonInterface::get_command`](super::CommonInterface::get_command),
     /// this returns [`None`] if the user exited. However, as parsing
     /// requires a reference to the [`Debugger`],

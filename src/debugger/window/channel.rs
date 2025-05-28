@@ -7,12 +7,12 @@ use super::{Window, WindowCmd, WindowEvent};
 type InitFn = Box<dyn FnOnce() + Send>;
 
 /// A generic channel-based window.
-/// 
+///
 /// This window doesn't do much on its own,
 /// but simply receives event from a channel
 /// and sends actions to another one. Coordinates
 /// are normalized to be in the range (-1 .. 1).
-/// 
+///
 /// While this in itself is not too useful, it allows
 /// for some nice things:
 /// * Testing is simplified as events can be read from
@@ -21,14 +21,14 @@ type InitFn = Box<dyn FnOnce() + Send>;
 /// * [`SdlWindow`](super::SdlWindow) uses this
 ///   for significant performance improvements
 /// * The turtle web server also is built on this
-/// 
+///
 /// The key benefit of using a [`ChannelWindow`] lies
 /// in the possibility to handle window events somewhere
 /// else instead of deep within the debugger.
 pub struct ChannelWindow {
     max_coord: (f64, f64),
     /// Init function
-    /// 
+    ///
     /// This exists mainly for [`SdlWindow`](super::SdlWindow).
     pub(super) init: InitFn,
     commands: Sender<WindowCmd>,

@@ -1,5 +1,5 @@
 //! Compiling turtle graphics programs
-//! 
+//!
 //! Currently, only transpiling to C is available via [`CComp`].
 //! Additionally, no features are implemented.
 
@@ -17,13 +17,13 @@ mod context;
 // Aufwand bisher: ~8h
 
 /// A turtle-to-C compiler.
-/// 
+///
 /// Using [`CComp::compile()`], this can be used to transpile
 /// a turtle program into C. The resulting C program then needs
 /// to be compiled with a regular C compiler and linked with both
 /// `turtleinterf.o` and `sdlinterf.o`, which will **not** be done
 /// by this transpiler.
-/// 
+///
 /// NOTE: this is not well tested (especially since lexer and
 /// parser were changed to handle additional features), thus
 /// errors and miscompilations are to be expected.
@@ -36,7 +36,7 @@ pub struct CComp {
 
 impl CComp {
     /// Create a new compiler for a given turtle program.
-    /// 
+    ///
     /// TODO: panic if any features are enabled
     pub fn new(prog: TProgram) -> Self {
         Self {
@@ -148,12 +148,12 @@ impl CComp {
     }
 
     /// Compile a single statement
-    /// 
+    ///
     /// As control structures also are a single statement,
     /// this function will regularly return more than one line
     /// of code. Additionally, there are statements like `walk home`
     /// that are transpiled to multiple C statements.
-    /// 
+    ///
     /// If any inner blocks are present, they will be indented relative
     /// to `stmt`. Thus, any indentation happening on the returned lines
     /// should happen on all lines equally. The first line is never indented.
@@ -288,7 +288,7 @@ impl CComp {
     }
 
     /// Compile an expression into the C equivalent.
-    /// 
+    ///
     /// Since turtle conditions are now represented as
     /// expressions with return type [`Boolean`](crate::tokens::ValType::Boolean),
     /// this function is also responsible for compiling conditions.
@@ -342,7 +342,7 @@ impl CComp {
     }
 
     /// "Compile" a variable
-    /// 
+    ///
     /// This function is mostly used to get the appropriate name
     /// for a variable. However, in certain situations (distinguished
     /// by [`VarAct::Init`]), `double <name>` might be returned
@@ -386,7 +386,7 @@ impl CComp {
     }
 
     /// Convenience function to compile a list of arguments.
-    /// 
+    ///
     /// This will iterate over `args`, apply `map` on each element,
     /// and return a string composed of the results of the mapping,
     /// with `", "` in between each element.
@@ -403,7 +403,7 @@ impl CComp {
     }
 
     /// Read an identifier from the symbol table.
-    /// 
+    ///
     /// If the identifier starts with `__` (two underscores),
     /// `__loc` is prepended to avoid any possible conflicts with
     /// built-in identifiers, such as `__ttl_x` etc.
@@ -423,7 +423,7 @@ impl CComp {
 }
 
 /// Actions on variables
-/// 
+///
 /// This is used by [`CComp::comp_var()`] to prevent
 /// writes to read-only global predefined variables and
 /// allow declaration and initialisation in appropriate
@@ -435,7 +435,7 @@ enum VarAct {
     /// Write a value to a variable
     Write,
     /// Initialise a variable
-    /// 
+    ///
     /// Similar to [`Write`](VarAct::Write), but indicates
     /// a position where a variable can be declared.
     Init,

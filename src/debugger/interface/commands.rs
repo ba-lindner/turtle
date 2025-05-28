@@ -1,5 +1,5 @@
 //! Common debugger commands
-//! 
+//!
 //! This module provides an enum for common debugger commands, [`DbgCommand`],
 //! aswell as a function for parsing it, [`parse_command`].
 
@@ -8,12 +8,12 @@ use std::num::ParseIntError;
 use crate::pos::{FilePos, FilePosParseErr};
 
 /// Turtle debugger commands
-/// 
+///
 /// This enum lists all commands available for the
 /// [default turtle debugger](super::Terminal).
 /// It is very similar to the
 /// [available debug API](crate::debugger::Debugger).
-/// 
+///
 /// Please take note that all `Step`-variants will also stop
 /// on encountering a breakpoint, even if breakpoints are
 /// only mentioned for [`Run`](DbgCommand::Run).
@@ -100,7 +100,7 @@ const DEBUG_HELP_BP: &str = "subcommands for breakpoint:
   breakpoint disable <id> - disable breakpoint <id>";
 
 /// Extends a [`str`] to any of the given words if it is a prefix.
-/// 
+///
 /// This can be used to easily allow users to only enter the prefix
 /// of a command.
 pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
@@ -113,7 +113,7 @@ pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
 }
 
 /// Reasons why no command was returned
-/// 
+///
 /// This is mainly used to handle quasi-commands like `quit` and `help`.
 pub enum NoCmdReason<'l> {
     /// User wants to quit

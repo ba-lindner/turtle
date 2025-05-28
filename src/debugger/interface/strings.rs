@@ -14,17 +14,17 @@ use super::{
 type StringRes = Result<String, String>;
 
 /// Generic [`DbgInterface`](super::DbgInterface) with default commands.
-/// 
+///
 /// This type offers the same user interface as the default
 /// [`Terminal`](super::Terminal) one, but uses an [`Iterator`] for input
 /// and a [`mpsc::channel`] for output instead of stdin/stdout.
 /// All parsing from strings and formatting into strings is also
 /// handled by this interface.
-/// 
+///
 /// Since [`Receiver`] also implements [`IntoIterator`], this
 /// interface can also be used with a channel for both input
 /// and output.
-/// 
+///
 /// [`DbgInterface`](super::DbgInterface) is implemented via [`CommonInterface`].
 pub struct Strings<I> {
     /// Iterator to draw user input from
