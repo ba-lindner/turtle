@@ -77,6 +77,10 @@ fn main() {
             }
             opt.config(&prog.title("Interpreter")).exec(&prog);
         }
+        TCommand::RunExample { example, opt } => {
+            let prog = example.get_prog();
+            opt.config(&prog.title("Interpreter (Example)")).exec(&prog);
+        }
         TCommand::Shell {
             features,
             base,
@@ -99,6 +103,22 @@ fn main() {
             opt,
         } => {
             let prog = source.get_prog();
+            let conf = opt
+                .config(&prog.title("Debugger"))
+                .debug_in(Terminal)
+                .breakpoints(breakpoint);
+            match interface {
+                Interf::Terminal => conf.exec(&prog),
+                Interf::VSCode => conf.debug_in(VSCode).exec(&prog),
+            }
+        }
+        TCommand::DebugExample {
+            example,
+            breakpoint,
+            interface,
+            opt,
+        } => {
+            let prog = example.get_prog();
             let conf = opt
                 .config(&prog.title("Debugger"))
                 .debug_in(Terminal)

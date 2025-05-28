@@ -20,6 +20,13 @@ pub enum TCommand {
         #[command(flatten)]
         opt: RunOpt,
     },
+    /// Start interpreter with an example
+    RunExample {
+        /// the example to run
+        example: Example,
+        #[command(flatten)]
+        opt: RunOpt,
+    },
     /// Start turtle shell
     Shell {
         /// display mechanism
@@ -35,6 +42,19 @@ pub enum TCommand {
     Debug {
         #[command(flatten)]
         source: Source,
+        /// set breakpoints in format line,column
+        #[arg(short, long)]
+        breakpoint: Vec<FilePos>,
+        /// select debugging interface
+        #[arg(short, long, default_value = "terminal")]
+        interface: Interf,
+        #[command(flatten)]
+        opt: RunOpt,
+    },
+    /// Start debugger with an example
+    DebugExample {
+        /// the example to debug
+        example: Example,
         /// set breakpoints in format line,column
         #[arg(short, long)]
         breakpoint: Vec<FilePos>,
@@ -110,6 +130,57 @@ pub enum Interf {
     Terminal,
     /// run as vscode extension
     VSCode,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+pub enum Example {
+    Circle,
+    Spiral,
+    Random,
+    SinCos,
+    RandPath,
+    Diagram,
+    PythTree,
+    PythTreeSplit,
+    DragonCurve,
+    Snowflake,
+    LevyCCurve,
+    Sierpinski,
+    Types,
+    Multithreading,
+    Events,
+    KeyControl,
+    ButtonControl,
+}
+
+impl Example {
+    pub fn get_prog(&self) -> turtle::TProgram {
+        use turtle_examples::Example as TEx;
+        let ex = match self {
+            Example::Circle => TEx::CIRCLE,
+            Example::Spiral => TEx::SPIRAL,
+            Example::Random => TEx::RANDOM,
+            Example::SinCos => TEx::SIN_COS,
+            Example::RandPath => TEx::RAND_PATH,
+            Example::Diagram => TEx::DIAGRAM,
+            Example::PythTree => TEx::PYTH_TREE,
+            Example::PythTreeSplit => TEx::PYTH_TREE_SPLIT,
+            Example::DragonCurve => TEx::DRAGON_CURVE,
+            Example::Snowflake => TEx::SNOWFLAKE,
+            Example::LevyCCurve => TEx::LEVY_C_CURVE,
+            Example::Sierpinski => TEx::SIERPINSKI,
+            Example::Types => TEx::TYPES,
+            Example::Multithreading => TEx::MULTITHREADING,
+            Example::Events => TEx::EVENTS,
+            Example::KeyControl => TEx::KEY_CONTROL,
+            Example::ButtonControl => TEx::BUTTON_CONTROL,
+        };
+        let mut prog =
+            turtle::TProgram::parse(ex.code, false, turtle::features::FeatureConf::default())
+                .expect("examples should never fail");
+        prog.name = Some(ex.name.to_string());
+        prog
+    }
 }
 
 #[cfg(test)]

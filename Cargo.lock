@@ -883,6 +883,7 @@ dependencies = [
  "rand",
  "sdl2",
  "thiserror",
+ "turtle-examples",
 ]
 
 [[package]]
