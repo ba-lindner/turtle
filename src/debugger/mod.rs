@@ -188,6 +188,8 @@ pub enum DebugErr {
     ExprSideEffects,
     #[error("cannot modify main block")]
     MainBlock,
+    #[error("cannot add parameters")]
+    Params,
     #[error(
         "cannot replace definition for {0} as another already exists with different arguments"
     )]

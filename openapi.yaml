@@ -11,26 +11,20 @@ tags:
   - name: running
     description: let the turtle draw!
 paths:
+  # examples
   /examples:
     get:
       tags: [examples]
       summary: list available examples
       operationId: listExamples
-  /examples/{id}:
-    get:
-      tags: [examples]
-      summary: get example details
-      operationId: getExampleMeta
-  /examples/{id}/code:
-    get:
-      tags: [examples]
-      summary: get example code
-      operationId: getExampleCode
-  /examples/{id}/preview:
-    get:
-      tags: [examples]
-      summary: get example preview
-      operationId: getExampleImg
+      responses:
+        '200':
+          description: List of examples
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/ExampleList'
+  # programming
   /prog:
     post:
       tags: [programming]
@@ -63,6 +57,7 @@ paths:
       tags: [programming]
       summary: set code of program
       operationId: setProgCode
+  # running
   /examples/{id}/run:
     post:
       tags: [running]
@@ -83,3 +78,33 @@ paths:
       tags: [running]
       summary: end a run
       operationId: stopRun
+components:
+  schemas:
+    Example:
+      type: object
+      required:
+      - name
+      - summary
+      - description
+      - code
+      - group
+      properties:
+        name:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        code:
+          type: string
+        group:
+          type: string
+          enum:
+          - Basic examples
+          - Advanced examples
+          - Fractals
+          - Feature showcases
+    ExampleList:
+      type: array
+      items:
+        $ref: '#/components/schemas/Example'

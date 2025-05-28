@@ -82,7 +82,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn debug_in(&mut self, mut interf: impl DbgInterface) {
-        self.ctx.window.borrow_mut().init_with(20.0, 15.0);
+        self.setup();
         if interf.exec(self) == ProgEnd::AllTurtlesFinished {
             self.finished();
         };
@@ -93,6 +93,20 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     //   helper functions
     //
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    fn setup(&mut self) {
+        self.ctx.window.borrow_mut().init_with(20.0, 15.0);
+        let mut glob = self.ctx.vars.borrow_mut();
+        for (idx, param) in self.prog.params.iter().enumerate() {
+            glob.set_var(
+                param.name,
+                match self.ctx.args.get(idx) {
+                    Some(v) if !v.is_empty() => v.convert(param.value.val_type()),
+                    _ => param.value.clone(),
+                },
+            );
+        }
+    }
 
     fn active(&mut self) -> &mut TurtleRunner<'p, W> {
         &mut self.turtles[self.active_turtle].1
@@ -223,7 +237,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     pub fn run(&mut self) {
-        self.ctx.window.borrow_mut().init_with(20.0, 15.0);
+        self.setup();
         while !self.turtles.is_empty() {
             self.active().run_sleep();
             match self.sync_turtles() {
@@ -478,6 +492,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                 }
             }
             crate::tokens::ParseToken::StartBlock(_) => return Err(DebugErr::MainBlock),
+            crate::tokens::ParseToken::Param(_, _) => return Err(DebugErr::Params),
         }
         Ok(())
     }

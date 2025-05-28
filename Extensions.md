@@ -14,13 +14,13 @@ filled with command-line arguments or default values.
 
 Syntax:
 ```
-param <identifier> = <expr>
+param @<name> = <expr>
 ```
 
 Example:
 ```
-param start_length = 5
-param min_length = 0.1
+param @start_length = 5
+param @min_length = 0.1
 ```
 
 The given `<expr>` should only be evaluated if no fitting argument is provided.
@@ -29,7 +29,7 @@ inserted at the start of the main block, where `<idx>` is determined by the orde
 of `param`s.
 ```
 if @<idx> <> 0 then
-  store @<idx> in @<idx>
+  store @<idx> in @<name>
 else
   store <expr> in @<name>
 endif

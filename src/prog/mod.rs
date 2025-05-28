@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     features::FeatureConf,
-    tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType},
+    tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType, Value},
     Identified, SymbolTable, TurtleError,
 };
 
@@ -25,6 +25,7 @@ struct RawProg {
     paths: Vec<PathDef>,
     calcs: Vec<CalcDef>,
     main: Option<Block>,
+    params: Vec<Param>,
     key_event: Option<PathDef>,
     mouse_event: Option<PathDef>,
 }
@@ -54,6 +55,9 @@ impl RawProg {
                 }
                 *curr = Some(func);
             }
+            ParseToken::Param(name, value) => {
+                self.params.push(Param { name, value });
+            }
         }
         Ok(())
     }
@@ -68,6 +72,7 @@ impl RawProg {
             paths: self.paths,
             calcs: self.calcs,
             main,
+            params: self.params,
             key_event: self.key_event,
             mouse_event: self.mouse_event,
             symbols: symbols.clone(),
@@ -90,6 +95,7 @@ pub struct TProgram {
     pub paths: Vec<PathDef>,
     pub calcs: Vec<CalcDef>,
     pub main: Block,
+    pub params: Vec<Param>,
     key_event: Option<PathDef>,
     mouse_event: Option<PathDef>,
     pub symbols: SymbolTable,
@@ -273,4 +279,10 @@ pub struct Extensions {
     pub calcs: RefCell<Vec<CalcDef>>,
     pub key_event: RefCell<Option<PathDef>>,
     pub mouse_event: RefCell<Option<PathDef>>,
+}
+
+#[derive(Debug)]
+pub struct Param {
+    pub name: usize,
+    pub value: Value,
 }

@@ -72,6 +72,7 @@ pub enum ParseToken {
     CalcDef(CalcDef),
     EventHandler(EventKind, PathDef),
     StartBlock(Block),
+    Param(usize, Value),
 }
 
 #[derive(Debug, PartialEq)]

@@ -51,6 +51,8 @@ impl<'s, 'f> Parser<'s, 'f> {
             self.parse_main(begin)
         } else if self.match_keyword(Keyword::Event) {
             self.parse_event(begin)
+        } else if self.match_keyword(Keyword::Param) {
+            self.parse_param()
         } else {
             Err(self.unexpected_token(TokenExpectation::BlockStart))
         })
@@ -145,6 +147,19 @@ impl<'s, 'f> Parser<'s, 'f> {
             LexToken::Keyword(Keyword::Bool) => ValType::Boolean,
             _ => return Err(self.unexpected_last_token(TokenExpectation::ValType)),
         })
+    }
+
+    fn parse_param(&mut self) -> PRes<ParseToken> {
+        self.expect_feature(Feature::Parameters)?;
+        let Some(LexToken::GlobalVar(id)) = self.next_token() else {
+            return Err(self.unexpected_last_token(TokenExpectation::GlobalVar));
+        };
+        self.expect_symbol('=')?;
+        let val = self.parse_expr()?;
+        let Some(val) = val.is_const() else {
+            return Err(ParseError::ParamNotConst(id).attach_pos(val.start));
+        };
+        Ok(ParseToken::Param(id, val))
     }
 
     fn parse_event(&mut self, begin: FilePos) -> PRes<ParseToken> {
@@ -522,6 +537,8 @@ pub enum ParseError {
     ArgCount(usize, usize),
     #[error("missing feature {0}")]
     MissingFeature(Feature),
+    #[error("param #{0} doesn't have a constant default value")]
+    ParamNotConst(usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -535,6 +552,7 @@ pub enum TokenExpectation {
     PredefFunc,
     ValType,
     EventKind,
+    GlobalVar,
 }
 
 impl Display for TokenExpectation {
@@ -549,6 +567,7 @@ impl Display for TokenExpectation {
             TokenExpectation::PredefFunc => write!(f, "predefined function or type"),
             TokenExpectation::ValType => write!(f, "type"),
             TokenExpectation::EventKind => write!(f, "event kind"),
+            TokenExpectation::GlobalVar => write!(f, "global variable"),
         }
     }
 }

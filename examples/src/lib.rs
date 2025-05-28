@@ -36,7 +36,7 @@ impl Display for Group {
             Group::Basic => write!(f, "Basic examples"),
             Group::Advanced => write!(f, "Advanced examples"),
             Group::Fractals => write!(f, "Fractals"),
-            Group::Features => write!(f, "Feature Showcases"),
+            Group::Features => write!(f, "Feature showcases"),
         }
     }
 }
@@ -135,4 +135,6 @@ examples! {
     KEY_CONTROL("../button_control.tg" as "Key control") Features,
     /// Move the turtle with mouse events
     BUTTON_CONTROL("../mouse_control.tg" as "Mouse control") Features,
+    /// Easier Parameters
+    PARAMETERS("../params.tg" as "Parameters") Features,
 }

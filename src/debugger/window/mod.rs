@@ -149,7 +149,9 @@ impl Window for VoidWindow {
     fn draw(&mut self, _: TCoord, _: TCoord, _: TColor) {}
     fn clear(&mut self) {}
 
-    fn print(&mut self, _: &str) {}
+    fn print(&mut self, msg: &str) {
+        println!("{msg}")
+    }
 
     fn events(&mut self) -> Vec<WindowEvent> {
         Vec::new()

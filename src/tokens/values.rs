@@ -113,6 +113,14 @@ impl Value {
             Value::Boolean(b) => *b,
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Value::Number(val) => *val == 0.0,
+            Value::String(s) => s.is_empty(),
+            Value::Boolean(b) => !b,
+        }
+    }
 }
 
 impl Display for Value {

@@ -130,4 +130,5 @@ keyword_enum! {
     EndEvent if Events,
     Key if Events,
     Mouse if Events,
+    Param if Parameters,
 }

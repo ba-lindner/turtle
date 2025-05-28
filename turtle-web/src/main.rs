@@ -16,10 +16,13 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
-use turtle::debugger::{
-    config::RunConfig,
-    interface::Strings,
-    window::{ChannelWindow, WindowCmd, WindowEvent},
+use turtle::{
+    debugger::{
+        config::RunConfig,
+        interface::Strings,
+        window::{ChannelWindow, WindowCmd, WindowEvent},
+    },
+    // features::FeatureConf,
 };
 
 const TEST_CODE: &str = "
@@ -53,6 +56,27 @@ begin
   stop
 end
 ";
+
+/*
+/progs
+    programs.json
+    <prog_name1>.tg
+    <prog_name2>.tg
+
+*/
+
+// enum Permission {
+//     None,
+//     Read,
+//     Write,
+// }
+
+// struct Prog {
+//     name: String,
+//     key: Option<String>,
+//     public: Permission,
+//     features: FeatureConf,
+// }
 
 struct SharedState {
     commands: Receiver<WindowCmd>,

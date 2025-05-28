@@ -1,0 +1,12 @@
+" +feature types
+" +feature parameters
+
+param @s = 'string'
+param @n = 0.235
+param @b = false
+
+begin
+  print @s
+  print string(@n)
+  print string(@b)
+end

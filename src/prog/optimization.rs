@@ -4,7 +4,7 @@ use crate::{
 };
 
 impl Expr {
-    fn is_const(&self) -> Option<Value> {
+    pub fn is_const(&self) -> Option<Value> {
         if let ExprKind::Const(val) = &self.kind {
             Some(val.clone())
         } else {

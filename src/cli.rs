@@ -151,6 +151,7 @@ pub enum Example {
     Events,
     KeyControl,
     ButtonControl,
+    Parameters,
 }
 
 impl Example {
@@ -174,6 +175,7 @@ impl Example {
             Example::Events => TEx::EVENTS,
             Example::KeyControl => TEx::KEY_CONTROL,
             Example::ButtonControl => TEx::BUTTON_CONTROL,
+            Example::Parameters => TEx::PARAMETERS,
         };
         let mut prog =
             turtle::TProgram::parse(ex.code, false, turtle::features::FeatureConf::default())

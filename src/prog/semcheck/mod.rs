@@ -46,6 +46,9 @@ impl TProgram {
             globals: HashMap::new(),
             locals: HashMap::new(),
         };
+        for param in &mut self.params {
+            ctx.globals.insert(param.name, param.value.val_type());
+        }
         type CheckFunc<'p> =
             dyn Fn(&'_ mut TProgram, &'_ mut CheckContext) -> Result<bool, TurtleError> + 'p;
         let mut checks: Vec<Box<CheckFunc<'_>>> = vec![Box::new(|prog, ctx| {
