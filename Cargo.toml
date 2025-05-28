@@ -1,11 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["turtle-web"]
+members = ["turtle-web", "examples"]
+package.authors = ["Bernhard Lindner lindbe.pi22@stud.gera.dhge.de"]
 
 [package]
 name = "turtle"
 version = "0.3.2"
-authors = ["Bernhard Lindner lindbe.pi22@stud.gera.dhge.de"]
+authors.workspace = true
 edition = "2021"
 description = "Compiler, Interpreter and Debugger for the turtle language"
 rust-version = "1.78"
