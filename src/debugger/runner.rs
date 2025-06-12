@@ -304,7 +304,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     }
 
     pub fn eval(&mut self, expr: Expr, frame: Option<usize>) -> Value {
-        _ = self.cmds.send(DbgCommand::Eval(expr));
+        _ = self.cmds.send(DbgCommand::Eval(Box::new(expr)));
         let mut frames = if let Some(frame) = frame {
             self.turtle.borrow_mut().stack.drain(frame + 1..).collect()
         } else {
@@ -316,7 +316,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     }
 
     pub fn exec(&mut self, stmt: Statement) -> bool {
-        _ = self.cmds.send(DbgCommand::Exec(stmt));
+        _ = self.cmds.send(DbgCommand::Exec(Box::new(stmt)));
         self.run_cmd();
         self.finished
     }

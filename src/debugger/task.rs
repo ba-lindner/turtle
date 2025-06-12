@@ -38,8 +38,8 @@ impl Future for TurtleFuture {
 }
 
 pub enum DbgCommand {
-    Eval(Expr),
-    Exec(Statement),
+    Eval(Box<Expr>),
+    Exec(Box<Statement>),
 }
 
 pub struct TurtleTask<'p, W: Window> {

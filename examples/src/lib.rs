@@ -98,9 +98,9 @@ examples! {
     // ##########################
 
     /// A diagramm plotting the sinus and cosinus functions
-    SIN_COS("../circle.tg" as "Sinus & Cosinus Plot") Advanced,
+    SIN_COS("../sin_cos.tg" as "Sinus & Cosinus Plot") Advanced,
     /// A turtle trying not to fall of the edge of the canvas
-    RAND_PATH("../circle.tg" as "Random Path") Advanced,
+    RAND_PATH("../rand_path.tg" as "Random Path") Advanced,
     /// A diagram showing the architecture of turtle itself
     DIAGRAM("../pap.tg" as "Turtle UML") Advanced,
 

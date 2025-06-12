@@ -31,9 +31,9 @@ calculation dist_to_border()
     endif
   else
     if @dir > 0 and @dir < 180 then
-      store |(@max_y + @y) / sin(@dir)| in dist_1
-    else
       store |(@max_y - @y) / sin(@dir)| in dist_1
+    else
+      store |(@max_y + @y) / sin(@dir)| in dist_1
     endif
     if @dir > 270 or @dir < 90 then
       store |(@max_x - @x) / cos(@dir)| in dist_2
