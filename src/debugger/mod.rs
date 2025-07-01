@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    fmt::{Display, Write as _},
+    fmt::Display,
     sync::Arc,
     task::{Wake, Waker},
 };
@@ -11,9 +11,9 @@ use varlist::VarList;
 use window::Window;
 
 use crate::{
+    Disp, SymbolTable, TurtleError,
     pos::FilePos,
     tokens::{EventKind, PredefVar, StmtKind, Value},
-    SymbolTable, TurtleError,
 };
 
 pub use controller::DebugController as Debugger;
@@ -133,10 +133,34 @@ pub enum DbgEvent {
     BreakpointHit(usize),
 }
 
+impl Display for DbgEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbgEvent::TurtleFinished(id) => write!(f, "turtle #{id} finished"),
+            DbgEvent::BreakpointHit(id) => write!(f, "breakpoint #{id} hit"),
+        }
+    }
+}
+
 pub struct VarDump {
     pub locals: IndexMap<String, Value>,
     pub globals: IndexMap<String, Value>,
     pub predef: IndexMap<PredefVar, Value>,
+}
+
+impl Display for VarDump {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (name, value) in &self.locals {
+            write!(f, "{name:<20} {value}")?;
+        }
+        for (name, value) in &self.globals {
+            write!(f, "@{name:<19} {value}")?;
+        }
+        for (pdv, value) in &self.predef {
+            write!(f, "@{:<20} {value}", pdv.get_str())?;
+        }
+        Ok(())
+    }
 }
 
 pub struct TurtleInfo {
@@ -145,18 +169,19 @@ pub struct TurtleInfo {
     pub start_task: (FuncType, Vec<Value>),
 }
 
-impl TurtleInfo {
-    pub fn disp(&self, symbols: &SymbolTable) -> String {
-        let func = self.start_task.0.disp(symbols);
-        let mut res = format!(
-            "#{:<3} {} {func}",
+impl Disp for TurtleInfo {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result {
+        write!(
+            f,
+            "#{:<3} {} {}",
             self.id,
-            if self.is_active { "x" } else { " " }
-        );
+            if self.is_active { "x" } else { " " },
+            self.start_task.0.with_symbols(symbols)
+        )?;
         for val in &self.start_task.1 {
-            write!(&mut res, " {val}").unwrap();
+            write!(f, " {val}").unwrap();
         }
-        res
+        Ok(())
     }
 }
 
@@ -166,9 +191,15 @@ pub struct FrameInfo {
     pub pos: FilePos,
 }
 
-impl FrameInfo {
-    pub fn disp(&self, symbols: &SymbolTable) -> String {
-        format!("{:<3} {} {}", self.index, self.func.disp(symbols), self.pos)
+impl Disp for FrameInfo {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result {
+        write!(
+            f,
+            "{:<3} {} {}",
+            self.index,
+            self.func.with_symbols(symbols),
+            self.pos
+        )
     }
 }
 
@@ -190,8 +221,6 @@ pub enum DebugErr {
     MainBlock,
     #[error("cannot add parameters")]
     Params,
-    #[error(
-        "cannot replace definition for {0} as another already exists with different arguments"
-    )]
+    #[error("cannot replace definition for {0} as another already exists with different arguments")]
     IncompatibleArgs(FuncType),
 }

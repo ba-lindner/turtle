@@ -26,13 +26,13 @@ macro_rules! match_extended {
     };
 }
 
-mod commands;
+pub mod commands;
 mod shell;
 mod strings;
 mod terminal;
 mod vscode;
 
-use super::{window::Window, Debugger, ProgEnd};
+use super::{Debugger, ProgEnd, window::Window};
 
 pub use shell::Shell;
 pub use strings::Strings;

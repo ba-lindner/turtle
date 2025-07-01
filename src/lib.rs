@@ -4,11 +4,13 @@ use debugger::FuncType;
 use indexmap::IndexMap;
 
 use pos::*;
-use prog::{parser::ParseError, TypeError};
+use prog::{TypeError, parser::ParseError};
 
 pub use ccomp::CComp;
 pub use prog::TProgram;
 use tokens::{EventKind, ValType};
+#[cfg(feature = "examples")]
+pub use turtle_examples as examples;
 
 mod ccomp;
 pub mod debugger;
@@ -93,4 +95,23 @@ pub enum TurtleError {
     EventArgsLength(EventKind, usize, usize),
     #[error("{0} event handler has wrong type of argument at index {1}: got {2}, expected {3}")]
     EventArgsType(EventKind, usize, ValType, ValType),
+}
+
+pub trait Disp {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result;
+
+    fn with_symbols<'s>(&'s self, symbols: &'s SymbolTable) -> Symbolized<'s, Self>
+    where
+        Self: Sized,
+    {
+        Symbolized(self, symbols)
+    }
+}
+
+pub struct Symbolized<'s, T: Disp>(&'s T, &'s SymbolTable);
+
+impl<'s, T: Disp> Display for Symbolized<'s, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.disp(f, self.1)
+    }
 }

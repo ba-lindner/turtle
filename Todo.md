@@ -6,7 +6,7 @@
   - [x] Multithreading
   - [x] Events
     - [ ] events w/o types or feature dependency
-  - [ ] Parameters
+  - [x] Parameters
   - [ ] Early Returns
 - [x] improved debugger
   - [x] give feedback on what happened
@@ -19,11 +19,11 @@
   - [x] allow custom i/o for debug commands / output
 - [x] Turtle Shell
   - [x] execute commands
-  - [ ] add paths + calculations
+  - [x] add paths + calculations
   - [ ] add events
 - [ ] Turtle Webserver
   - [x] add `Window` trait
-  - [ ] implement buffered Window
+  - [x] implement buffered Window
   - [ ] implement API Window
   - [ ] write Client
 - [ ] Compiler rewrite

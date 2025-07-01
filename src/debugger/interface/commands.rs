@@ -3,63 +3,165 @@
 //! This module provides an enum for common debugger commands, [`DbgCommand`],
 //! aswell as a function for parsing it, [`parse_command`].
 
-use std::num::ParseIntError;
+use std::{fmt::Display, num::ParseIntError};
 
-use crate::pos::{FilePos, FilePosParseErr};
+use crate::{
+    Disp,
+    debugger::{
+        Breakpoint, DbgEvent, DebugErr, Debugger, FrameInfo, FuncType, ProgEnd, TurtleInfo,
+        VarDump, window::Window,
+    },
+    pos::{FilePos, FilePosParseErr},
+    tokens::{StmtKind, Value},
+};
 
-/// Turtle debugger commands
-///
-/// This enum lists all commands available for the
-/// [default turtle debugger](super::Terminal).
-/// It is very similar to the
-/// [available debug API](crate::debugger::Debugger).
-///
-/// Please take note that all `Step`-variants will also stop
-/// on encountering a breakpoint, even if breakpoints are
-/// only mentioned for [`Run`](DbgCommand::Run).
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum DbgCommand {
+macro_rules! dbg_commands {
+    (
+        $run:ident
+        $($(#[doc = $doc:expr])+
+        $cc:ident $(($($at:ty),+))? $(|$($an:ident),+|)? {$($exec:tt)*} $(return $sc:ident ($($rn:ident $rt:ty),*))?)+
+    ) => {
+        /// Turtle debugger commands
+        ///
+        /// This enum lists all commands available for the
+        /// [default turtle debugger](super::Terminal).
+        /// It is very similar to the
+        /// [available debug API](crate::debugger::Debugger).
+        ///
+        /// Please take note that all `Step`-variants will also stop
+        /// on encountering a breakpoint, even if breakpoints are
+        /// only mentioned for [`Run`](DbgCommand::Run).
+        #[derive(Debug, PartialEq, Eq, Clone)]
+        pub enum DbgCommand {
+            $($(#[doc = $doc])+ $cc $(($($at),+))?,)+
+        }
+
+        impl DbgCommand {
+            #[allow(unused_parens)]
+            fn call_debugger<'p, W: Window + 'p>(self, $run: &mut Debugger<'p, W>) -> Result<Option<CmdOutput>, StopCause> {
+                match self {
+                    $(Self::$cc $(($($an),+))? => {
+                        $(let ($($rn),*) = )? {$($exec)*} $(; return Ok(Some(CmdOutput::$cc($($rn),*))))?
+                    })+
+                }
+                Ok(None)
+            }
+        }
+
+        cmd_output! {@filter $([($(@return ($($rn $rt),*))? $cc $($sc)?)])+}
+    };
+}
+
+macro_rules! cmd_output {
+    (@filter $([$((@return $($t:tt)*))? $(($_:ident))?])*) => {
+        cmd_output! {@exec $($($($t)*)?)*}
+    };
+    (@exec $(($($p:ident $t:ty),+) $cc:ident $sc:ident)+) => {
+        pub enum CmdOutput {
+            $($cc($($t),+),)+
+        }
+
+        #[allow(unused_parens)]
+        impl CmdOutput {
+            $(pub fn $sc(self) -> Option<($($t),+)> {
+                if let Self::$cc($($p),+) = self {
+                    Some(($($p),+))
+                } else { None }
+            })+
+        }
+    };
+}
+
+dbg_commands! { run
     /// Run [`DebugController::step_single()`](crate::debugger::Debugger::step_single()) n times.
-    StepSingle(usize),
+    StepSingle(usize) |n| { for _ in 0..n { if run.step_single()?.is_none() { break; }}}
     /// Run [`DebugController::step_over()`](crate::debugger::Debugger::step_over()) n times.
-    StepOver(usize),
+    StepOver(usize) |n| { for _ in 0..n { if run.step_over()? { break; }}}
     /// Run [`DebugController::step_out()`](crate::debugger::Debugger::step_out()).
-    StepOut,
+    StepOut { run.step_out()?; }
     /// Run [`DebugController::step_kind()`](crate::debugger::Debugger::step_kind())
     /// with [`StmtKind::Turtle`](crate::tokens::StmtKind::Turtle).
-    StepTurtle,
+    StepTurtle { run.step_kind(StmtKind::Turtle)?; }
     /// Run [`DebugController::step_kind()`](crate::debugger::Debugger::step_kind())
     /// with [`StmtKind::Draw`](crate::tokens::StmtKind::Draw).
-    StepDraw,
+    StepDraw { run.step_kind(StmtKind::Draw)?; }
     /// Run [`DebugController::step_sync()`](crate::debugger::Debugger::step_sync()).
-    StepSync,
+    StepSync { run.step_sync()?; }
     /// Run [`DebugController::run_breakpoints()`](crate::debugger::Debugger::run_breakpoints()).
-    Run,
+    Run { run.run_breakpoints()?; }
     /// Call [`DebugController::toggle_narrate()`](crate::debugger::Debugger::toggle_narrate()).
-    ToggleNarrate,
+    ToggleNarrate { run.toggle_narrate() } return toggle_narrate (active bool)
     /// Print [`DebugController::vardump()`](crate::debugger::Debugger::vardump())
     /// with [`None`] (active frame).
-    Vardump,
+    Vardump { run.vardump(None)? } return vardump (vars VarDump)
     /// Print [`DebugController::curr_pos()`](crate::debugger::Debugger::curr_pos()).
-    CurrPos,
+    CurrPos { run.curr_pos() } return curr_pos (active usize, ft FuncType, fp FilePos)
     /// Print [`DebugController::list_turtles()`](crate::debugger::Debugger::list_turtles()).
-    ListTurtles,
+    ListTurtles { run.list_turtles() } return list_turtles (sync bool, list Vec<TurtleInfo>)
     /// Call [`DebugController::select_turtle()`](crate::debugger::Debugger::select_turtle()).
-    SelectTurtle(usize),
-    /// Print [`DebugController::list_turtles()`](crate::debugger::Debugger::list_turtles()).
-    ListBreakpoints,
+    SelectTurtle(usize) |id| { run.select_turtle(id)?; }
+    /// Print [`DebugController::list_breakpoints()`](crate::debugger::Debugger::list_breakpoints()).
+    ListBreakpoints { run.list_breakpoints() } return list_breakpoints (bp Vec<Breakpoint>)
     /// Call [`DebugController::add_breakpoint()`](crate::debugger::Debugger::add_breakpoint()).
-    AddBreakpoint(FilePos),
+    AddBreakpoint(FilePos) |pos| { run.add_breakpoint(pos) } return add_breakpoint (id usize)
     /// Call [`DebugController::delete_breakpoint()`](crate::debugger::Debugger::delete_breakpoint()).
-    DeleteBreakpoint(usize),
+    DeleteBreakpoint(usize) |id| { run.delete_breakpoint(id); }
     /// Call [`DebugController::enable_breakpoint()`](crate::debugger::Debugger::enable_breakpoint()).
-    EnableBreakpoint(usize, bool),
+    EnableBreakpoint(usize, bool) |id, active| { run.enable_breakpoint(id, active)?; }
     /// Print [`DebugController::stacktrace()`](crate::debugger::Debugger::stacktrace()).
-    Stacktrace,
+    Stacktrace { run.stacktrace() } return stacktrace (frames Vec<FrameInfo>)
     /// Print [`DebugController::eval_expr()`](crate::debugger::Debugger::eval_expr()).
-    Evaluate(String),
+    Evaluate(String) |expr| { run.eval_expr(None, &expr)? } return evaluate (val Value)
+    /// Call [`DebugController::set_var()`](crate::debugger::Debugger::set_var()).
+    Set(String, String) |var, expr| { run.set_var(None, &var, &expr)?; }
     /// Run [`DebugController::exec_stmt()`](crate::debugger::Debugger::exec_stmt()).
-    Execute(String),
+    Execute(String) |stmt| { run.exec_stmt(&stmt)? } return execute (finished bool)
+}
+
+pub struct CmdResult {
+    pub output: Option<CmdOutput>,
+    pub error: Option<DebugErr>,
+    pub stmt_count: usize,
+    pub run_events: Vec<DbgEvent>,
+}
+
+enum StopCause {
+    ProgEnd(ProgEnd),
+    Err(DebugErr),
+}
+
+impl From<ProgEnd> for StopCause {
+    fn from(value: ProgEnd) -> Self {
+        Self::ProgEnd(value)
+    }
+}
+
+impl From<DebugErr> for StopCause {
+    fn from(value: DebugErr) -> Self {
+        Self::Err(value)
+    }
+}
+
+impl DbgCommand {
+    pub fn exec<'p, W: Window + 'p>(self, run: &mut Debugger<'p, W>) -> Result<CmdResult, ProgEnd> {
+        let (output, stop) = match self.call_debugger(run) {
+            Ok(Some(out)) => (Some(out), None),
+            Ok(None) => (None, None),
+            Err(why) => (None, Some(why)),
+        };
+        let (stmt_count, run_events) = run.events();
+        let error = match stop {
+            None => None,
+            Some(StopCause::Err(err)) => Some(err),
+            Some(StopCause::ProgEnd(end)) => return Err(end),
+        };
+        Ok(CmdResult {
+            output,
+            error,
+            stmt_count,
+            run_events,
+        })
+    }
 }
 
 /// Help for all commands
@@ -74,6 +176,7 @@ const DEBUG_HELP: &str = "available commands:
   turtle <id>             - switch active turtle
   stacktrace              - view stacktrace
   evaluate <expr>         - get value of expression
+  set <var> <expr>        - set variable to value of expression
   execute <stmt>          - let active turtle execute statement
   help [step|breakpoint]  - show this help / detailed help for subcommand
   quit                    - exit the debugger";
@@ -122,7 +225,7 @@ pub enum NoCmdReason<'l> {
     Help(&'static str),
     /// Empty input
     Empty,
-    /// Error parsing comman
+    /// Error parsing command
     Err(CmdError<'l>),
 }
 
@@ -173,6 +276,10 @@ pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
             acc += " ";
             acc
         })),
+        "set" => DbgCommand::Set(
+            words.next().ok_or(CmdError::MissingArg)?.to_string(),
+            words.next().ok_or(CmdError::MissingArg)?.to_string()
+        ),
         "execute" => DbgCommand::Execute(words.fold(String::new(), |mut acc, e| {
             acc += e;
             acc += " ";
@@ -214,4 +321,51 @@ fn breakpoint_command<'w>(
         "disable" => DbgCommand::EnableBreakpoint(words.next().ok_or(CmdError::MissingArg)?.parse()?, false),
         other => return Err(CmdError::UnknownSub("breakpoint", other)),
     }))
+}
+
+impl Disp for CmdOutput {
+    fn disp(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        symbols: &crate::SymbolTable,
+    ) -> std::fmt::Result {
+        match self {
+            CmdOutput::ToggleNarrate(narrator) => {
+                write!(f, "narrator is {}", if *narrator { "ON" } else { "OFF" })
+            }
+            CmdOutput::Vardump(vars) => vars.fmt(f),
+            CmdOutput::CurrPos(id, ft, pos) => write!(
+                f,
+                "turtle #{id} is currently in {} at {pos}",
+                ft.with_symbols(symbols)
+            ),
+            CmdOutput::ListTurtles(sync, list) => {
+                write!(f, "turtles are {}in sync", if *sync { "" } else { "NOT " })?;
+                for ttl in list {
+                    ttl.with_symbols(symbols).fmt(f)?;
+                }
+                Ok(())
+            }
+            CmdOutput::ListBreakpoints(list) => {
+                for bp in list {
+                    bp.fmt(f)?;
+                }
+                Ok(())
+            }
+            CmdOutput::AddBreakpoint(id) => write!(f, "added breakpoint #{id}"),
+            CmdOutput::Stacktrace(frames) => {
+                for frame in frames {
+                    frame.with_symbols(symbols).fmt(f)?;
+                }
+                Ok(())
+            }
+            CmdOutput::Evaluate(val) => val.fmt(f),
+            CmdOutput::Execute(end) => {
+                if *end {
+                    write!(f, "turtle finished execution")?;
+                }
+                Ok(())
+            }
+        }
+    }
 }

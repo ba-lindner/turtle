@@ -315,6 +315,17 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
         res.expect("expr should always return value")
     }
 
+    pub fn set_var(&mut self, frame: Option<usize>, id: usize, val: Value) -> Result<(), DebugErr> {
+        let mut ttl = self.turtle.borrow_mut();
+        let frame = if let Some(f) = frame {
+            ttl.stack.get_mut(f).ok_or(DebugErr::FrameNotFound(f))?
+        } else {
+            ttl.stack.last_mut().expect("should never be empty")
+        };
+        frame.vars.set_var(id, val);
+        Ok(())
+    }
+
     pub fn exec(&mut self, stmt: Statement) -> bool {
         _ = self.cmds.send(DbgCommand::Exec(Box::new(stmt)));
         self.run_cmd();

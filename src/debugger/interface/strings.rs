@@ -1,13 +1,16 @@
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::{
+    fmt::Display,
+    sync::mpsc::{self, Receiver, Sender},
+};
 
 use crate::{
-    debugger::{window::Window, DbgEvent, Debugger, ProgEnd},
-    tokens::StmtKind,
+    Disp,
+    debugger::{Debugger, ProgEnd, window::Window},
 };
 
 use super::{
-    commands::{self, DbgCommand, NoCmdReason},
     CommonInterface,
+    commands::{self, DbgCommand, NoCmdReason},
 };
 
 /// The "output" type of the [`Strings`] debug interface.
@@ -48,6 +51,18 @@ impl<I: Iterator<Item = String>> Strings<I> {
     pub fn new(inputs: I, outputs: Sender<StringRes>) -> Self {
         Self { inputs, outputs }
     }
+
+    fn send(&self, msg: Result<String, String>) -> Result<(), ProgEnd> {
+        self.outputs.send(msg).map_err(|_| ProgEnd::WindowExited)
+    }
+
+    fn ok<T: Display>(&self, t: T) -> Result<(), ProgEnd> {
+        self.send(Ok(t.to_string()))
+    }
+
+    fn err<T: Display>(&self, t: T) -> Result<(), ProgEnd> {
+        self.send(Err(t.to_string()))
+    }
 }
 
 impl<I: Iterator<Item = String>> CommonInterface for Strings<I> {
@@ -59,8 +74,8 @@ impl<I: Iterator<Item = String>> CommonInterface for Strings<I> {
                 Ok(cmd) => return Some(cmd),
                 Err(NoCmdReason::Quit) => return None,
                 Err(NoCmdReason::Empty) => {}
-                Err(NoCmdReason::Help(help)) => _ = self.outputs.send(Ok(help.to_string())),
-                Err(NoCmdReason::Err(why)) => _ = self.outputs.send(Err(why.to_string())),
+                Err(NoCmdReason::Help(help)) => _ = self.ok(help),
+                Err(NoCmdReason::Err(why)) => _ = self.err(why),
             }
         }
     }
@@ -70,95 +85,18 @@ impl<I: Iterator<Item = String>> CommonInterface for Strings<I> {
         run: &mut Debugger<'p, W>,
         cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
-        macro_rules! ok {
-            ($fmt:literal $($t:tt)*) => { ok!(format!($fmt $($t)*)) };
-            ($e:expr) => { _ = self.outputs.send(Ok($e)) };
+        let res = cmd.exec(run)?;
+        if let Some(out) = res.output {
+            self.ok(out.with_symbols(&run.prog.symbols))?;
         }
-        macro_rules! err {
-            ($e:expr) => { err!($e, _ => {}) };
-            ($e:expr, $p:pat => $($t:tt)*) => {
-                match $e {
-                    Ok($p) => {$($t)*}
-                    Err(why) => _ = self.outputs.send(Err(why.to_string())),
-                }
-            };
+        if let Some(why) = res.error {
+            self.err(why)?;
         }
-        match cmd {
-            DbgCommand::StepSingle(count) => {
-                for _ in 0..count {
-                    run.step_single()?;
-                }
-            }
-            DbgCommand::StepOver(count) => {
-                for _ in 0..count {
-                    run.step_over()?;
-                }
-            }
-            DbgCommand::StepOut => run.step_out()?,
-            DbgCommand::StepTurtle => run.step_kind(StmtKind::Turtle)?,
-            DbgCommand::StepDraw => run.step_kind(StmtKind::Draw)?,
-            DbgCommand::StepSync => run.step_sync()?,
-            DbgCommand::Run => run.run_breakpoints()?,
-            DbgCommand::ToggleNarrate => {
-                let n = if run.toggle_narrate() { "ON" } else { "OFF" };
-                ok!("narrator is {n}");
-            }
-            DbgCommand::Vardump => err!(run.vardump(None), vars => {
-                for (name, value) in vars.locals {
-                    ok!("{name:<20} {value}");
-                }
-                for (name, value) in vars.globals {
-                    ok!("@{name:<19} {value}");
-                }
-                for (pdv, value) in vars.predef {
-                    ok!("@{:<19} {value}", pdv.get_str());
-                }
-            }),
-            DbgCommand::CurrPos => {
-                let id = run.active_id();
-                let (func, pos) = run.curr_pos();
-                let disp = func.disp(&run.prog.symbols);
-                ok!("turtle #{id} is currently in {disp} at {pos}");
-            }
-            DbgCommand::ListTurtles => {
-                let (sync, turtles) = run.list_turtles();
-                ok!("turtles are {}in sync", if sync { "" } else { "NOT " });
-                for ttl in turtles {
-                    ok!(ttl.disp(&run.prog.symbols));
-                }
-            }
-            DbgCommand::SelectTurtle(id) => err!(
-                run.select_turtle(id),
-                () => ok!("turtle #{id} selected");
-            ),
-            DbgCommand::ListBreakpoints => {
-                for bp in run.list_breakpoints() {
-                    ok!(bp.to_string());
-                }
-            }
-            DbgCommand::AddBreakpoint(pos) => _ = run.add_breakpoint(pos),
-            DbgCommand::DeleteBreakpoint(id) => run.delete_breakpoint(id),
-            DbgCommand::EnableBreakpoint(id, active) => err!(run.enable_breakpoint(id, active)),
-            DbgCommand::Stacktrace => {
-                for frame in run.stacktrace() {
-                    ok!(frame.disp(&run.prog.symbols));
-                }
-            }
-            DbgCommand::Evaluate(expr) => err!(
-                run.eval_expr(None, &expr),
-                val => ok!(val.to_string());
-            ),
-            DbgCommand::Execute(stmt) => err!(run.exec_stmt(&stmt)),
+        if res.stmt_count > 0 {
+            self.ok(format!("executed {} statements", res.stmt_count))?;
         }
-        let (stmt_count, events) = run.events();
-        if stmt_count > 0 {
-            ok!("executed {} statements", stmt_count);
-        }
-        for evt in events {
-            match evt {
-                DbgEvent::TurtleFinished(id) => ok!("turtle #{id} finished"),
-                DbgEvent::BreakpointHit(id) => ok!("breakpoint #{id} hit"),
-            };
+        for evt in res.run_events {
+            self.ok(evt)?;
         }
         Ok(())
     }

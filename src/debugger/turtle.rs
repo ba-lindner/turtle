@@ -1,12 +1,12 @@
 use std::{f64::consts::PI, fmt::Display};
 
 use crate::{
+    Disp, SymbolTable,
     pos::FilePos,
     tokens::{EventKind, PredefVar, Value, Variable, VariableKind},
-    SymbolTable,
 };
 
-use super::{varlist::VarList, window::Window, GlobalCtx, TColor, TCoord};
+use super::{GlobalCtx, TColor, TCoord, varlist::VarList, window::Window};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum FuncType {
@@ -18,16 +18,6 @@ pub enum FuncType {
 }
 
 impl FuncType {
-    pub fn disp(&self, symbols: &SymbolTable) -> String {
-        let name = |id| symbols.get_index(id).unwrap().0;
-        match self {
-            FuncType::Main => "main block".to_string(),
-            FuncType::Path(id) => format!("path {}", name(*id)),
-            FuncType::Calc(id) => format!("calculation {}", name(*id)),
-            FuncType::Event(kind) => format!("{kind} event handler"),
-        }
-    }
-
     pub fn short(&self, symbols: &SymbolTable) -> String {
         match self {
             FuncType::Main => "main".to_string(),
@@ -43,6 +33,18 @@ impl Display for FuncType {
             FuncType::Main => write!(f, "main block"),
             FuncType::Path(id) => write!(f, "path #{id}"),
             FuncType::Calc(id) => write!(f, "calculation #{id}"),
+            FuncType::Event(kind) => write!(f, "{kind} event handler"),
+        }
+    }
+}
+
+impl Disp for FuncType {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result {
+        let name = |id: &usize| symbols.get_index(*id).unwrap().0;
+        match self {
+            FuncType::Main => write!(f, "main block"),
+            FuncType::Path(id) => write!(f, "path {}", name(id)),
+            FuncType::Calc(id) => write!(f, "calculation {}", name(id)),
             FuncType::Event(kind) => write!(f, "{kind} event handler"),
         }
     }

@@ -1,5 +1,5 @@
 use crate::{
-    debugger::{turtle::FuncType, window::Window, DbgEvent, Debugger, ProgEnd},
+    debugger::{DbgEvent, Debugger, ProgEnd, turtle::FuncType, window::Window},
     pos::FilePos,
     tokens::{EventKind, PredefVar},
 };
@@ -70,7 +70,7 @@ impl CommonInterface for VSCode {
             VSCodeCmd::StepOver | VSCodeCmd::StepIn | VSCodeCmd::StepOut | VSCodeCmd::Run
         );
         match cmd {
-            VSCodeCmd::StepOver => run.step_over()?,
+            VSCodeCmd::StepOver => _ = run.step_over()?,
             VSCodeCmd::StepIn => _ = run.step_single()?,
             VSCodeCmd::StepOut => run.step_out()?,
             VSCodeCmd::Run => run.run_breakpoints()?,
@@ -120,7 +120,7 @@ impl CommonInterface for VSCode {
             }
         }
         if moves {
-            let curr_pos = run.curr_pos().1;
+            let curr_pos = run.curr_pos().2;
             if let Some(id) = run.events().1.into_iter().find_map(|e| match e {
                 DbgEvent::BreakpointHit(bp) => Some(bp),
                 _ => None,

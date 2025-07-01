@@ -2,14 +2,17 @@
 name = "turtle-web"
 version = "0.1.0"
 authors.workspace = true
-edition = "2021"
+edition = "2024"
 description = "Webserver for turtle graphics programs"
 
 [dependencies]
-turtle = { path = ".." }
+turtle = { path = "..", features = ["examples"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 parking_lot = "0.12"
 axum = "0.8"
+anyhow = "1.0"
+uuid = { version = "1.17", features = ["v4"] }
 
 [dependencies.tokio]
 version = "1.44"

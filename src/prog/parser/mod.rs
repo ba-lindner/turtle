@@ -252,7 +252,7 @@ impl<'s, 'f> Parser<'s, 'f> {
         ))
     }
 
-    fn parse_variable(&mut self) -> PRes<Variable> {
+    pub fn parse_variable(&mut self) -> PRes<Variable> {
         let pos = self.curr_pos();
         match self.next_token_err()? {
             LexToken::GlobalVar(id) => {

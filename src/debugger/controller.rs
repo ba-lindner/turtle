@@ -4,20 +4,20 @@ use std::{
 };
 
 use crate::{
+    TProgram, TurtleError,
     features::{Feature, FeatureState},
     pos::{FilePos, Positionable},
     prog::semcheck::{self, Vars},
     tokens::{EventKind, StmtKind, ValType, Value, VariableKind},
-    TProgram, TurtleError,
 };
 
 use super::{
+    Breakpoint, DbgEvent, DebugErr, FrameInfo, GlobalCtx, ProgEnd, TurtleInfo, VarDump,
     interface::DbgInterface,
     runner::{StepResult, TurtleRunner},
     turtle::FuncType,
     varlist::VarList,
     window::{Window, WindowEvent},
-    Breakpoint, DbgEvent, DebugErr, FrameInfo, GlobalCtx, ProgEnd, TurtleInfo, VarDump,
 };
 
 pub struct DebugController<'p, W> {
@@ -112,7 +112,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         &mut self.turtles[self.active_turtle].1
     }
 
-    pub fn active_id(&self) -> usize {
+    fn active_id(&self) -> usize {
         self.turtles[self.active_turtle].0
     }
 
@@ -292,10 +292,18 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     /// Execute a single statement or function call.
-    pub fn step_over(&mut self) -> Result<(), ProgEnd> {
+    ///
+    /// Returns true if a debugger should pause (breakpoint hit).
+    pub fn step_over(&mut self) -> Result<bool, ProgEnd> {
         let stack_size = self.active().stack_size();
-        while self.step_single()?.is_some() && self.active().stack_size() > stack_size {}
-        Ok(())
+        loop {
+            if self.step_single()?.is_none() {
+                return Ok(true);
+            }
+            if self.active().stack_size() <= stack_size {
+                return Ok(false);
+            }
+        }
     }
 
     /// Leave the current function.
@@ -422,6 +430,17 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         Ok(self.active().eval(expr, frame))
     }
 
+    pub fn set_var(&mut self, frame: Option<usize>, var: &str, expr: &str) -> Result<(), DebugErr> {
+        let val = self.eval_expr(frame, expr)?;
+        let var = self.prog.with_parser(var, |p| Ok(p.parse_variable()?))?;
+        match var.kind {
+            VariableKind::Local(id, _) => self.active().set_var(frame, id, val)?,
+            VariableKind::Global(id, _) => self.ctx.vars.borrow_mut().set_var(id, val),
+            VariableKind::GlobalPreDef(pdv) => self.ctx.set_var(pdv, val),
+        }
+        Ok(())
+    }
+
     /// returns true if turtle finished
     pub fn exec_stmt(&mut self, stmt: &str) -> Result<bool, DebugErr> {
         let mut stmt = self.prog.with_parser(stmt, |p| Ok(p.parse_stm()?))?;
@@ -541,8 +560,9 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         self.active_ref().vardump(frame)
     }
 
-    pub fn curr_pos(&self) -> (FuncType, FilePos) {
-        self.active_ref().curr_pos()
+    pub fn curr_pos(&self) -> (usize, FuncType, FilePos) {
+        let (ft, pos) = self.active_ref().curr_pos();
+        (self.active_id(), ft, pos)
     }
 
     pub fn list_turtles(&self) -> (bool, Vec<TurtleInfo>) {
