@@ -18,8 +18,11 @@ use crate::{
 macro_rules! dbg_commands {
     (
         $run:ident
-        $($(#[doc = $doc:expr])+
-        $cc:ident $(($($at:ty),+))? $(|$($an:ident),+|)? {$($exec:tt)*} $(return $sc:ident ($($rn:ident $rt:ty),*))?)+
+        $(
+            $(#[doc = $doc:expr])+
+            $cc:ident $(($($at:ty),+))? $(|$($an:ident),+|)? {$($exec:tt)*}
+            $(return $sc:ident ($($rn:ident $rt:ty),*))?
+        )+
     ) => {
         /// Turtle debugger commands
         ///
@@ -41,20 +44,17 @@ macro_rules! dbg_commands {
             fn call_debugger<'p, W: Window + 'p>(self, $run: &mut Debugger<'p, W>) -> Result<Option<CmdOutput>, StopCause> {
                 match self {
                     $(Self::$cc $(($($an),+))? => {
-                        $(let ($($rn),*) = )? {$($exec)*} $(; return Ok(Some(CmdOutput::$cc($($rn),*))))?
+                        $(let ($($rn),*) = )? {$($exec)*} $(; return Ok(Some(CmdOutput::$cc($($rn),*)));)?
                     })+
                 }
                 Ok(None)
             }
         }
 
-        cmd_output! {@filter $([($(@return ($($rn $rt),*))? $cc $($sc)?)])+}
+        dbg_commands! {@filter $([($(@return ($($rn $rt),*))? $cc $($sc)?)])+}
     };
-}
-
-macro_rules! cmd_output {
     (@filter $([$((@return $($t:tt)*))? $(($_:ident))?])*) => {
-        cmd_output! {@exec $($($($t)*)?)*}
+        dbg_commands! {@exec $($($($t)*)?)*}
     };
     (@exec $(($($p:ident $t:ty),+) $cc:ident $sc:ident)+) => {
         pub enum CmdOutput {
@@ -258,6 +258,13 @@ pub enum CmdError<'l> {
 /// Parse a line of user input into a command
 pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
     let mut words = inp.split_whitespace();
+    // TODO: once stabilized, use `SplitWhitespace::remainder()` instead
+    let rem = || {
+        inp.split_once(char::is_whitespace)
+            .map(|(_, rem)| rem)
+            .unwrap_or_default()
+            .to_string()
+    };
     Ok(match_extended!(words.next() => {
         None => return Err(NoCmdReason::Empty),
         "step" => step_command(words)?,
@@ -271,20 +278,12 @@ pub fn parse_command(inp: &str) -> Result<DbgCommand, NoCmdReason<'_>> {
             None => DbgCommand::ListTurtles,
         },
         "stacktrace" => DbgCommand::Stacktrace,
-        "evaluate" => DbgCommand::Evaluate(words.fold(String::new(), |mut acc, e| {
-            acc += e;
-            acc += " ";
-            acc
-        })),
+        "evaluate" => DbgCommand::Evaluate(rem()),
         "set" => DbgCommand::Set(
             words.next().ok_or(CmdError::MissingArg)?.to_string(),
             words.next().ok_or(CmdError::MissingArg)?.to_string()
         ),
-        "execute" => DbgCommand::Execute(words.fold(String::new(), |mut acc, e| {
-            acc += e;
-            acc += " ";
-            acc
-        })),
+        "execute" => DbgCommand::Execute(rem()),
         "help" => return Err(match_extended!(words.next() => {
             None => NoCmdReason::Help(DEBUG_HELP),
             "step" => NoCmdReason::Help(DEBUG_HELP_STEP),
