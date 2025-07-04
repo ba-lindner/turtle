@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{debugger::FuncType, features::FeatureConf, tokens::*, Identified, TurtleError};
+use crate::{Identified, TurtleError, debugger::FuncType, features::FeatureConf, tokens::*};
 
 use super::{CalcDef, PathDef, TProgram};
 
@@ -134,16 +134,16 @@ impl TProgram {
         if let Some(evt) = &self.mouse_event {
             evt.collect_context(&mut res);
         }
-        for path in &*self.extensions.paths.borrow() {
+        for path in &*self.extensions.paths.read() {
             path.collect_context(&mut res);
         }
-        for calc in &*self.extensions.calcs.borrow() {
+        for calc in &*self.extensions.calcs.read() {
             calc.collect_context(&mut res);
         }
-        if let Some(evt) = &*self.extensions.key_event.borrow() {
+        if let Some(evt) = &*self.extensions.key_event.read() {
             evt.collect_context(&mut res);
         }
-        if let Some(evt) = &*self.extensions.mouse_event.borrow() {
+        if let Some(evt) = &*self.extensions.mouse_event.read() {
             evt.collect_context(&mut res);
         }
         res.locals.clear();

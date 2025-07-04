@@ -218,6 +218,7 @@ pub fn extend_str<'i>(inp: &'i str, words: &'i [&'_ str]) -> &'i str {
 /// Reasons why no command was returned
 ///
 /// This is mainly used to handle quasi-commands like `quit` and `help`.
+#[derive(Debug)]
 pub enum NoCmdReason<'l> {
     /// User wants to quit
     Quit,

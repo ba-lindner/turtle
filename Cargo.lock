@@ -905,6 +905,7 @@ version = "0.3.2"
 dependencies = [
  "clap",
  "indexmap",
+ "parking_lot",
  "paste",
  "rand",
  "sdl2",

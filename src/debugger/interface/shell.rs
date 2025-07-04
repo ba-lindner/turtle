@@ -1,10 +1,10 @@
 use std::io::Write as _;
 
 use crate::{
-    debugger::{window::Window, Debugger, FuncType, ProgEnd},
+    TurtleError,
+    debugger::{Debugger, FuncType, ProgEnd, window::Window},
     prog::parser::{ParseError, Parser, TokenExpectation},
     tokens::{EventKind, PredefVar},
-    TurtleError,
 };
 
 use super::DbgInterface;
@@ -128,7 +128,7 @@ impl Shell {
                 "?" => println!("{SHELL_HELP}"),
                 "pos" => return TryParseResult::Cmd(ShellCmd::Pos),
                 "undef" => {
-                    let sym = |name: &str| run.prog.extensions.symbols.borrow().get_index_of(name);
+                    let sym = |name: &str| run.prog.extensions.symbols.read().get_index_of(name);
                     macro_rules! err {
                         ($($t:tt)*) => {{
                             eprintln!($($t)*);

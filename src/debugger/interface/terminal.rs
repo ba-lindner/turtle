@@ -39,7 +39,7 @@ impl CommonInterface for Terminal {
                 Err(NoCmdReason::Quit) => return None,
                 Err(NoCmdReason::Empty) => {}
                 Err(NoCmdReason::Help(help)) => println!("{help}"),
-                Err(NoCmdReason::Err(why)) => println!("{why}"),
+                Err(NoCmdReason::Err(why)) => eprintln!("{why}"),
             }
         }
     }

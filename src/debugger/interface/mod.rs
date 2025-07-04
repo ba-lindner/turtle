@@ -26,16 +26,16 @@ macro_rules! match_extended {
     };
 }
 
+mod channel;
 pub mod commands;
 mod shell;
-mod strings;
 mod terminal;
 mod vscode;
 
 use super::{Debugger, ProgEnd, window::Window};
 
+pub use channel::ChannelInterface;
 pub use shell::Shell;
-pub use strings::Strings;
 pub use terminal::Terminal;
 pub use vscode::VSCode;
 

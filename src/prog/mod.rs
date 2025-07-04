@@ -1,18 +1,17 @@
-use std::{
-    cell::{Ref, RefCell},
-    ops::Deref,
-    str::FromStr,
-};
+use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard};
+use std::{ops::Deref, str::FromStr};
 
 use crate::{
+    Identified, SymbolTable, TurtleError,
     features::FeatureConf,
     tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType, Value},
-    Identified, SymbolTable, TurtleError,
 };
 
 use lexer::Lexer;
 use parser::Parser;
 pub use semcheck::TypeError;
+#[cfg(feature = "examples")]
+use turtle_examples::Example;
 
 pub mod lexer;
 mod optimization;
@@ -77,11 +76,11 @@ impl RawProg {
             mouse_event: self.mouse_event,
             symbols: symbols.clone(),
             extensions: Extensions {
-                symbols: RefCell::new(symbols),
-                paths: RefCell::new(Vec::new()),
-                calcs: RefCell::new(Vec::new()),
-                key_event: RefCell::new(None),
-                mouse_event: RefCell::new(None),
+                symbols: RwLock::new(symbols),
+                paths: RwLock::new(Vec::new()),
+                calcs: RwLock::new(Vec::new()),
+                key_event: RwLock::new(None),
+                mouse_event: RwLock::new(None),
             },
         })
     }
@@ -137,6 +136,13 @@ impl TProgram {
         Ok(this)
     }
 
+    #[cfg(feature = "examples")]
+    pub fn from_example(ex: &Example) -> Result<Self, TurtleError> {
+        let mut this = Self::parse(ex.code, false, FeatureConf::default())?;
+        this.name = Some(ex.name.to_string());
+        Ok(this)
+    }
+
     fn check_idents(&self) -> Result<(), TurtleError> {
         for (id, (_, kind)) in self.symbols.iter().enumerate() {
             match kind {
@@ -157,9 +163,9 @@ impl TProgram {
 
     pub(crate) fn get_path(&self, name: usize) -> Result<MaybeRef<'_, PathDef>, TurtleError> {
         let find = |p: &&PathDef| p.name == name;
-        let ext = self.extensions.paths.borrow();
-        if let Ok(path) = Ref::filter_map(ext, |ps| ps.iter().find(find)) {
-            return Ok(MaybeRef::Cell(path));
+        let ext = self.extensions.paths.read();
+        if let Ok(path) = RwLockReadGuard::try_map(ext, |ps| ps.iter().find(find)) {
+            return Ok(MaybeRef::Lock(path));
         }
         let def = self.paths.iter().find(find);
         if let Some(path) = def {
@@ -170,9 +176,9 @@ impl TProgram {
 
     pub(crate) fn get_calc(&self, name: usize) -> Result<MaybeRef<'_, CalcDef>, TurtleError> {
         let find = |c: &&CalcDef| c.name == name;
-        let ext = self.extensions.calcs.borrow();
-        if let Ok(calc) = Ref::filter_map(ext, |cs| cs.iter().find(find)) {
-            return Ok(MaybeRef::Cell(calc));
+        let ext = self.extensions.calcs.read();
+        if let Ok(calc) = RwLockReadGuard::try_map(ext, |cs| cs.iter().find(find)) {
+            return Ok(MaybeRef::Lock(calc));
         }
         let def = self.calcs.iter().find(find);
         if let Some(path) = def {
@@ -186,8 +192,8 @@ impl TProgram {
             EventKind::Mouse => (&self.extensions.mouse_event, &self.mouse_event),
             EventKind::Key => (&self.extensions.key_event, &self.key_event),
         };
-        if let Ok(evt) = Ref::filter_map(ext.borrow(), |e| e.as_ref()) {
-            Some(MaybeRef::Cell(evt))
+        if let Ok(evt) = RwLockReadGuard::try_map(ext.read(), |e| e.as_ref()) {
+            Some(MaybeRef::Lock(evt))
         } else {
             default.as_ref().map(MaybeRef::Ref)
         }
@@ -222,7 +228,7 @@ impl TProgram {
         code: &str,
         f: impl FnOnce(&mut Parser) -> Result<T, TurtleError>,
     ) -> Result<T, TurtleError> {
-        let mut symbols = self.extensions.symbols.borrow_mut();
+        let mut symbols = self.extensions.symbols.write();
         let mut features = self.features;
         let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
         let mut parser = Parser::new(&mut symbols, ltokens, &mut features);
@@ -239,7 +245,7 @@ impl FromStr for TProgram {
 }
 
 pub enum MaybeRef<'r, T> {
-    Cell(std::cell::Ref<'r, T>),
+    Lock(MappedRwLockReadGuard<'r, T>),
     Ref(&'r T),
 }
 
@@ -248,7 +254,7 @@ impl<T> Deref for MaybeRef<'_, T> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            MaybeRef::Cell(r) => r,
+            MaybeRef::Lock(r) => r,
             MaybeRef::Ref(r) => r,
         }
     }
@@ -274,11 +280,11 @@ pub struct CalcDef {
 
 #[derive(Debug)]
 pub struct Extensions {
-    pub symbols: RefCell<SymbolTable>,
-    pub paths: RefCell<Vec<PathDef>>,
-    pub calcs: RefCell<Vec<CalcDef>>,
-    pub key_event: RefCell<Option<PathDef>>,
-    pub mouse_event: RefCell<Option<PathDef>>,
+    pub symbols: RwLock<SymbolTable>,
+    pub paths: RwLock<Vec<PathDef>>,
+    pub calcs: RwLock<Vec<CalcDef>>,
+    pub key_event: RwLock<Option<PathDef>>,
+    pub mouse_event: RwLock<Option<PathDef>>,
 }
 
 #[derive(Debug)]

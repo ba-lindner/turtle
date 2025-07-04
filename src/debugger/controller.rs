@@ -471,10 +471,10 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                     self.prog
                         .extensions
                         .paths
-                        .borrow_mut()
+                        .write()
                         .retain(|p| p.name != path.name);
                 }
-                self.prog.extensions.paths.borrow_mut().push(path);
+                self.prog.extensions.paths.write().push(path);
             }
             crate::tokens::ParseToken::CalcDef(mut calc) => {
                 if !calc.semantic_check(&mut ctx)? {
@@ -489,10 +489,10 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                     self.prog
                         .extensions
                         .calcs
-                        .borrow_mut()
+                        .write()
                         .retain(|c| c.name != calc.name);
                 }
-                self.prog.extensions.calcs.borrow_mut().push(calc);
+                self.prog.extensions.calcs.write().push(calc);
             }
             crate::tokens::ParseToken::EventHandler(kind, mut path) => {
                 if !path.semantic_check(&mut ctx)? {
@@ -506,8 +506,8 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                 };
                 semcheck::compare_args(kind, &path.args, args)?;
                 match kind {
-                    EventKind::Mouse => *self.prog.extensions.mouse_event.borrow_mut() = Some(path),
-                    EventKind::Key => *self.prog.extensions.key_event.borrow_mut() = Some(path),
+                    EventKind::Mouse => *self.prog.extensions.mouse_event.write() = Some(path),
+                    EventKind::Key => *self.prog.extensions.key_event.write() = Some(path),
                 }
             }
             crate::tokens::ParseToken::StartBlock(_) => return Err(DebugErr::MainBlock),
@@ -520,28 +520,18 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         if let Some(func) = func {
             match func {
                 FuncType::Main => return Err(DebugErr::MainBlock),
-                FuncType::Path(id) => self
-                    .prog
-                    .extensions
-                    .paths
-                    .borrow_mut()
-                    .retain(|p| p.name != id),
-                FuncType::Calc(id) => self
-                    .prog
-                    .extensions
-                    .calcs
-                    .borrow_mut()
-                    .retain(|c| c.name != id),
+                FuncType::Path(id) => self.prog.extensions.paths.write().retain(|p| p.name != id),
+                FuncType::Calc(id) => self.prog.extensions.calcs.write().retain(|c| c.name != id),
                 FuncType::Event(kind) => match kind {
-                    EventKind::Mouse => *self.prog.extensions.mouse_event.borrow_mut() = None,
-                    EventKind::Key => *self.prog.extensions.key_event.borrow_mut() = None,
+                    EventKind::Mouse => *self.prog.extensions.mouse_event.write() = None,
+                    EventKind::Key => *self.prog.extensions.key_event.write() = None,
                 },
             }
         } else {
-            self.prog.extensions.paths.borrow_mut().clear();
-            self.prog.extensions.calcs.borrow_mut().clear();
-            *self.prog.extensions.mouse_event.borrow_mut() = None;
-            *self.prog.extensions.key_event.borrow_mut() = None;
+            self.prog.extensions.paths.write().clear();
+            self.prog.extensions.calcs.write().clear();
+            *self.prog.extensions.mouse_event.write() = None;
+            *self.prog.extensions.key_event.write() = None;
         }
         Ok(())
     }
