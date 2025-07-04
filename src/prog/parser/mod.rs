@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
 use crate::{
-    features::{Feature, FeatureConf, FeatureState},
-    prog::{lexer::LexToken, CalcDef, PathDef},
-    tokens::*,
     FilePos, Identified, Pos, Positionable, SymbolTable,
+    features::{Feature, FeatureConf, FeatureState},
+    prog::{CalcDef, PathDef, lexer::LexToken},
+    tokens::*,
 };
 
 mod statements;
@@ -430,7 +430,9 @@ impl<'s, 'f> Parser<'s, 'f> {
                 }
             }
             t => {
-                return Err(ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start))
+                return Err(
+                    ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start)
+                );
             }
         })
     }

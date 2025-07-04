@@ -6,9 +6,9 @@ use std::{
 use clap::ValueEnum;
 
 use crate::{
+    FilePos, Identified, Pos,
     features::{Feature, FeatureConf},
     tokens::{Keyword, PredefVar},
-    FilePos, Identified, Pos,
 };
 use crate::{Positionable, SymbolTable, TurtleError};
 

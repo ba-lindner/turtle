@@ -1,0 +1,23 @@
+Main Menu
+	Load Example (select from list)
+		-> editor (view only)
+	Browse Progs
+		-> prog list
+	Load Prog (name + key?)
+		-> editor (view only?)
+	New Prog
+		-> editor
+
+Prog List
+	View
+		-> editor (view only)
+	Edit
+		-> editor
+	Run
+		-> debugger
+
+Editor (view only)
+	Edit (key)
+		-> editor
+	Run
+		-> debugger

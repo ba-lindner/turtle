@@ -151,15 +151,17 @@ impl Pos<Statement> {
                         return Vec::new();
                     }
                 }
-                vec![Statement::CounterLoop {
-                    counter,
-                    from,
-                    up,
-                    to,
-                    step,
-                    body,
-                }
-                .attach_pos(pos)]
+                vec![
+                    Statement::CounterLoop {
+                        counter,
+                        from,
+                        up,
+                        to,
+                        step,
+                        body,
+                    }
+                    .attach_pos(pos),
+                ]
             }
             Statement::WhileLoop(expr, block) => {
                 if expr.is_const().is_some_and(|v| !v.bool()) {

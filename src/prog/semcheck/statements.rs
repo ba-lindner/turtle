@@ -1,7 +1,7 @@
 use crate::{
+    TurtleError,
     pos::Pos,
     tokens::{Statement, ValType, VariableKind},
-    TurtleError,
 };
 
 use super::{CheckContext, TypeError, Vars};

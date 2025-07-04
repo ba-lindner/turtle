@@ -1,9 +1,9 @@
-use crate::{pos::FilePos, TProgram};
+use crate::{TProgram, pos::FilePos};
 
 use super::{
+    Debugger, Window,
     interface::{DbgInterface, Terminal},
     window::{ChannelWindow, SdlWindow},
-    Debugger, Window,
 };
 
 pub struct RunConfig<'a, W, I> {

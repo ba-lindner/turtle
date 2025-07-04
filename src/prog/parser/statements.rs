@@ -1,5 +1,5 @@
 use super::{LexToken, PRes, ParseError, Parser, TokenExpectation};
-use crate::{features::Feature, tokens::*, FilePos, Identified, Pos, Positionable};
+use crate::{FilePos, Identified, Pos, Positionable, features::Feature, tokens::*};
 
 impl Parser<'_, '_> {
     pub(super) fn parse_statements(&mut self, begin: FilePos, end_key: Keyword) -> PRes<Block> {

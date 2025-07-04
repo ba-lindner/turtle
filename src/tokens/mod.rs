@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
+    Pos, SymbolTable,
     pos::FilePos,
     prog::{CalcDef, PathDef},
-    Pos, SymbolTable,
 };
 
 pub use expr::{BiOperator, Expr, ExprKind, UnOperator};

@@ -1,12 +1,12 @@
 use clap::Parser;
 use turtle::{
+    TProgram,
     debugger::{
         config::RunConfig,
         interface::{Shell, Terminal, VSCode},
         window::{SdlWindow, VoidWindow, Window},
     },
     features::{FeatureConf, FeatureState},
-    TProgram,
 };
 
 use cli::*;
@@ -140,7 +140,11 @@ fn compile(prog: TProgram, filename: &str) {
     let mut cc = turtle::CComp::new(prog);
     let resfile = format!(
         "ccomp\\{}",
-        filename.replace(".tg", ".c").split('\\').last().unwrap()
+        filename
+            .replace(".tg", ".c")
+            .split('\\')
+            .next_back()
+            .unwrap()
     );
     cc.set_filename(&resfile);
     cc.compile();

@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    TProgram,
     debugger::{
         turtle::{FuncType, StackFrame},
         varlist::VarList,
@@ -14,10 +15,9 @@ use crate::{
     pos::FilePos,
     prog::PathDef,
     tokens::{Block, Expr, ExprKind, Statement, Value},
-    TProgram,
 };
 
-use super::{turtle::Turtle, window::Window, DbgAction, EventKind, GlobalCtx};
+use super::{DbgAction, EventKind, GlobalCtx, turtle::Turtle, window::Window};
 
 struct TurtleFuture(bool);
 

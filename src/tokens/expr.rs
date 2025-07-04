@@ -1,6 +1,6 @@
 use std::fmt::{Display, Write as _};
 
-use crate::{pos::FilePos, SymbolTable};
+use crate::{SymbolTable, pos::FilePos};
 
 use super::{ArgList, Narrate, PredefFunc, ValType, Value, Variable};
 

@@ -1,6 +1,6 @@
 use crate::{
-    tokens::{ValType, Variable, VariableKind},
     TurtleError,
+    tokens::{ValType, Variable, VariableKind},
 };
 
 use super::{CheckContext, TypeError, Vars};

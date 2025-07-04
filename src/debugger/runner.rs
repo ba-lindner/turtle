@@ -7,16 +7,16 @@ use std::{
 };
 
 use crate::{
+    TProgram,
     pos::{FilePos, Pos, Positionable},
     tokens::{Expr, PredefVar, Statement, StmtKind, Value, VariableKind},
-    TProgram,
 };
 
 use super::{
+    DbgAction, DebugErr, EventKind, FrameInfo, GlobalCtx, TurtleWaker, VarDump,
     task::{DbgCommand, TurtleTask},
     turtle::{FuncType, Turtle},
     window::Window,
-    DbgAction, DebugErr, EventKind, FrameInfo, GlobalCtx, TurtleWaker, VarDump,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

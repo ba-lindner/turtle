@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use sdl2::{event::Event, pixels::Color, rect::Point, render::Canvas, EventPump};
+use sdl2::{EventPump, event::Event, pixels::Color, rect::Point, render::Canvas};
 
 use super::{ChannelWindow, WindowCmd, WindowEvent};
 

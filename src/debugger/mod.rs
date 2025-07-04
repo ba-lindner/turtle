@@ -70,9 +70,9 @@ pub enum ProgEnd {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Breakpoint {
-    id: usize,
-    enabled: bool,
-    pos: FilePos,
+    pub id: usize,
+    pub enabled: bool,
+    pub pos: FilePos,
 }
 
 impl Display for Breakpoint {
