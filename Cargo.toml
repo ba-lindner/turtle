@@ -13,6 +13,7 @@ rust-version = "1.88"
 
 [features]
 examples = ["dep:turtle-examples"]
+default = ["examples"]
 
 [[bin]]
 name = "turtle"

@@ -22,11 +22,8 @@ impl Group {
         ]
     }
 
-    pub fn examples(&self) -> Vec<Example> {
-        Example::all()
-            .into_iter()
-            .filter(|e| e.group == *self)
-            .collect()
+    pub fn examples(&self) -> Vec<&'static Example> {
+        Example::ALL.iter().filter(|e| e.group == *self).collect()
     }
 }
 
@@ -69,11 +66,7 @@ macro_rules! examples {
                 };
             )+
 
-            pub fn all() -> Vec<Example> {
-                vec![
-                    $(Self::$const),+
-                ]
-            }
+            pub const ALL: &[Example] = &[$(Self::$const),+];
         }
     };
 }
