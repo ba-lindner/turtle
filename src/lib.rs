@@ -97,6 +97,39 @@ pub enum TurtleError {
     EventArgsType(EventKind, usize, ValType, ValType),
 }
 
+impl Disp for TurtleError {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result {
+        let sym = |id| symbols.get_index(id).unzip().0.unwrap();
+        match self {
+            TurtleError::UnidentifiedIdentifier(id) => {
+                write!(f, "identifier '{}' not used", sym(*id))
+            }
+            TurtleError::MissingDefinition(id) => write!(f, "no function '{}'", sym(*id)),
+            TurtleError::UndefGlobals(vars) => {
+                f.write_str("type could not be inferred for global variables ")?;
+                for (idx, var) in vars.iter().enumerate() {
+                    if idx > 0 {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(sym(*var))?;
+                }
+                Ok(())
+            }
+            TurtleError::UndefLocals(func, vars) => {
+                f.write_str("type could not be inferred for local variables ")?;
+                for (idx, var) in vars.iter().enumerate() {
+                    if idx > 0 {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(sym(*var))?;
+                }
+                write!(f, " in {}", func.with_symbols(symbols))
+            }
+            _ => self.fmt(f),
+        }
+    }
+}
+
 pub trait Disp {
     fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result;
 

@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow, bail};
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderName, StatusCode, header::LOCATION},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::{
     AppState,
     err::{ResultExt, WebResult},
-    prog::Prog,
+    prog::{Auth, Prog},
 };
 
 // ##########################
@@ -48,8 +48,122 @@ pub async fn example_list() -> Json<Value> {
 //     Programming
 // ##########################
 
-pub async fn new_prog(State(state): AppState) -> Json<Uuid> {
-    Json(state.lock().new_prog(Prog::new()))
+pub async fn new_prog(
+    State(state): AppState,
+) -> (StatusCode, [(HeaderName, String); 1], Json<Uuid>) {
+    let id = state.lock().new_prog(Prog::new());
+    (
+        StatusCode::CREATED,
+        [(LOCATION, format!("/prog/{id}"))],
+        Json(id),
+    )
+}
+
+pub async fn get_prog_meta(
+    State(state): AppState,
+    Path(id): Path<Uuid>,
+    auth: Auth,
+) -> WebResult<Json<Value>> {
+    Ok(Json(serde_json::to_value(
+        state.lock().get_prog(&id, auth)?,
+    )?))
+}
+
+pub async fn set_prog_meta(
+    State(state): AppState,
+    Path(id): Path<Uuid>,
+    auth: Auth,
+    Json(meta): Json<Prog>,
+) -> WebResult<()> {
+    state.lock().get_prog_mut(&id, auth)?.update(meta);
+    Ok(())
+}
+
+pub async fn get_prog_code(
+    State(state): AppState,
+    Path(id): Path<Uuid>,
+    auth: Auth,
+) -> WebResult<String> {
+    Ok(state.lock().get_prog(&id, auth)?.get_code()?.to_string())
+}
+
+pub async fn set_prog_code(
+    State(state): AppState,
+    Path(id): Path<Uuid>,
+    auth: Auth,
+    code: String,
+) -> WebResult<()> {
+    state.lock().get_prog_mut(&id, auth)?.set_code(code);
+    Ok(())
+}
+
+pub async fn check_prog(
+    State(state): AppState,
+    Path(id): Path<Uuid>,
+    auth: Auth,
+) -> WebResult<Json<Value>> {
+    enum Spans {
+        None,
+        Len(FilePos, usize),
+        Pos(FilePos, FilePos),
+        Multi(Vec<(String, Spans)>),
+    }
+
+    impl Spans {
+        fn to_json(self, err: String) -> Value {
+            match self {
+                Spans::None => json!({"err": err}),
+                Spans::Len(start, len) => json!({
+                    "err": err,
+                    "start": serialize_pos(start),
+                    "end": serialize_pos(FilePos::new(start.line, start.column + len)),
+                }),
+                Spans::Pos(start, end) => json!({
+                    "err": err,
+                    "start": serialize_pos(start),
+                    "end": serialize_pos(end),
+                }),
+                Spans::Multi(spans) => {
+                    let subs = Value::Array(
+                        spans
+                            .into_iter()
+                            .map(|(err, span)| span.to_json(err))
+                            .collect(),
+                    );
+                    json!({"err": err, "spans": subs})
+                }
+            }
+        }
+    }
+
+    if let Some(err) = state.lock().get_prog(&id, auth)?.check()? {
+        let msg = err.to_string();
+        let spans = match err {
+            turtle::TurtleError::LexErrors(items) => {
+                return Ok(Json(Value::Array(
+                    items
+                        .into_iter()
+                        .map(|e| Spans::Len(e.get_pos(), 1).to_json(e.to_string()))
+                        .collect(),
+                )));
+            }
+            turtle::TurtleError::ParseError(pos) => Spans::Len(pos.get_pos(), 1),
+            turtle::TurtleError::MultipleMains(first, second) => Spans::Multi(vec![
+                ("first main".to_string(), Spans::Len(first, 5)),
+                ("second main".to_string(), Spans::Len(second, 5)),
+            ]),
+            turtle::TurtleError::TypeError(_, pos) => Spans::Len(pos, 1),
+            turtle::TurtleError::TypeErrorSpan(_, start, end) => Spans::Pos(start, end),
+            turtle::TurtleError::MultipleEventHandler(_, first, second) => Spans::Multi(vec![
+                ("first event handler".to_string(), Spans::Len(first, 5)),
+                ("second event handler".to_string(), Spans::Len(second, 5)),
+            ]),
+            _ => Spans::None,
+        };
+        Ok(Json(json!([spans.to_json(msg)])))
+    } else {
+        Ok(Json(json!([])))
+    }
 }
 
 // ##########################
@@ -74,10 +188,11 @@ pub async fn run_example(
 pub async fn run_prog(
     State(state): AppState,
     Path(id): Path<Uuid>,
+    auth: Auth,
     Json(args): Json<Vec<String>>,
 ) -> WebResult<Json<Uuid>> {
     let mut state = state.lock();
-    let prog = state.get_prog(&id)?.get_prog()?;
+    let prog = state.get_prog(&id, auth)?.get_prog()?;
     let id = state.start_run(prog, args);
     Ok(Json(id))
 }
@@ -171,6 +286,10 @@ pub struct DebugQuery {
     formatted: Option<bool>,
 }
 
+fn serialize_pos(pos: FilePos) -> Value {
+    json!({"line": pos.line, "column": pos.column})
+}
+
 pub async fn debug(
     State(state): AppState,
     Path(id): Path<Uuid>,
@@ -208,9 +327,6 @@ pub async fn debug(
                 TValue::String(s) => Value::String(s),
                 TValue::Boolean(b) => Value::Bool(b),
             }
-        }
-        fn serialize_pos(pos: FilePos) -> Value {
-            json!({"line": pos.line, "column": pos.column})
         }
 
         let (kind, data) = match outp {
