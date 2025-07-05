@@ -11,7 +11,10 @@ use parking_lot::Mutex;
 use prog::Prog;
 use run::Run;
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    services::ServeDir,
+};
 
 use uuid::Uuid;
 
@@ -41,6 +44,7 @@ type AppState = State<Arc<Mutex<FullState>>>;
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let state = FullState::load();
+    std::fs::create_dir("data")?;
     gc_job(state.clone(), Duration::from_secs(60 * 15));
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
@@ -59,6 +63,7 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/run/{id}/events", post(api::report_event))
         .route("/run/{id}/stop", post(api::stop_run))
         .route("/run/{id}/debug", post(api::debug))
+        .fallback_service(ServeDir::new("assets"))
         .layer(cors)
         .with_state(state);
     let listener = TcpListener::bind(("0.0.0.0", 8000)).await?;
