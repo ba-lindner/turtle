@@ -2,10 +2,12 @@ use super::{TColor, TCoord};
 
 mod buffered;
 mod channel;
+#[cfg(feature = "sdl")]
 mod sdl;
 
 pub use buffered::BufferedWindow;
 pub use channel::ChannelWindow;
+#[cfg(feature = "sdl")]
 pub use sdl::SdlWindow;
 
 /// The `/dev/null`-window.

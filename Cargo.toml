@@ -12,17 +12,21 @@ description = "Compiler, Interpreter and Debugger for the turtle language"
 rust-version = "1.88"
 
 [features]
+default = ["examples", "sdl"]
 examples = ["dep:turtle-examples"]
-default = ["examples"]
+sdl = ["dep:sdl2"]
 
 [[bin]]
 name = "turtle"
-required-features = ["examples"]
+required-features = ["examples", "sdl"]
 
 [dependencies]
 indexmap = "2.7"
 rand = "0.9"
-sdl2 = { version = "0.37", features = ["bundled", "static-link"] }
+sdl2 = { version = "0.37", features = [
+    "bundled",
+    "static-link",
+], optional = true }
 paste = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 thiserror = "2.0"

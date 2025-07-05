@@ -3,8 +3,12 @@ use crate::{TProgram, pos::FilePos};
 use super::{
     Debugger, Window,
     interface::{DbgInterface, Terminal},
-    window::{ChannelWindow, SdlWindow},
 };
+
+#[cfg(not(feature = "sdl"))]
+use super::window::VoidWindow;
+#[cfg(feature = "sdl")]
+use super::window::{ChannelWindow, SdlWindow};
 
 pub struct RunConfig<'a, W, I> {
     args: &'a [String],
@@ -17,6 +21,18 @@ pub enum RunKind<I> {
     Debug(I, Vec<FilePos>),
 }
 
+#[cfg(not(feature = "sdl"))]
+impl<'a> RunConfig<'a, VoidWindow, Terminal> {
+    pub fn new(args: &'a [String]) -> Self {
+        Self {
+            args,
+            window: (0.0, 0.0),
+            kind: RunKind::Interpret,
+        }
+    }
+}
+
+#[cfg(feature = "sdl")]
 impl<'a> RunConfig<'a, ChannelWindow, Terminal> {
     pub fn new(args: &'a [String]) -> Self {
         Self {

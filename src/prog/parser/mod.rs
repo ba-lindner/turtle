@@ -329,34 +329,34 @@ impl<'s, 'f> Parser<'s, 'f> {
             match assoc {
                 Associativity::LeftToRight => {
                     for i in 0..nodes.len() - 1 {
-                        if let NodeKind::Op(op) = nodes[i + 1].0 {
-                            if ops.contains(&op) {
-                                let lhs = nodes[i].1.take().unwrap();
-                                let rhs = nodes[i + 1].1.take().unwrap();
-                                nodes[i + 1].1 = Some(Expr {
-                                    start: lhs.start,
-                                    end: rhs.end,
-                                    kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
-                                });
-                                nodes[i + 1].0 = nodes[i].0;
-                                nodes[i].0 = NodeKind::Empty;
-                            }
+                        if let NodeKind::Op(op) = nodes[i + 1].0
+                            && ops.contains(&op)
+                        {
+                            let lhs = nodes[i].1.take().unwrap();
+                            let rhs = nodes[i + 1].1.take().unwrap();
+                            nodes[i + 1].1 = Some(Expr {
+                                start: lhs.start,
+                                end: rhs.end,
+                                kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
+                            });
+                            nodes[i + 1].0 = nodes[i].0;
+                            nodes[i].0 = NodeKind::Empty;
                         }
                     }
                 }
                 Associativity::RightToLeft => {
                     for i in (1..nodes.len()).rev() {
-                        if let NodeKind::Op(op) = nodes[i].0 {
-                            if ops.contains(&op) {
-                                let lhs = nodes[i - 1].1.take().unwrap();
-                                let rhs = nodes[i].1.take().unwrap();
-                                nodes[i - 1].1 = Some(Expr {
-                                    start: lhs.start,
-                                    end: rhs.end,
-                                    kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
-                                });
-                                nodes[i].0 = NodeKind::Empty;
-                            }
+                        if let NodeKind::Op(op) = nodes[i].0
+                            && ops.contains(&op)
+                        {
+                            let lhs = nodes[i - 1].1.take().unwrap();
+                            let rhs = nodes[i].1.take().unwrap();
+                            nodes[i - 1].1 = Some(Expr {
+                                start: lhs.start,
+                                end: rhs.end,
+                                kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
+                            });
+                            nodes[i].0 = NodeKind::Empty;
                         }
                     }
                 }
@@ -448,10 +448,10 @@ impl<'s, 'f> Parser<'s, 'f> {
             let arg = self.parse_expr()?;
             args.push(arg);
         }
-        if let Some(c) = count {
-            if c != args.len() {
-                return Err(ParseError::ArgCount(args.len(), c).attach_pos(pos));
-            }
+        if let Some(c) = count
+            && c != args.len()
+        {
+            return Err(ParseError::ArgCount(args.len(), c).attach_pos(pos));
         }
         Ok(args)
     }

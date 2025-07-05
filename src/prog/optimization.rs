@@ -146,10 +146,10 @@ impl Pos<Statement> {
             } => {
                 if let (Some(from), Some(to)) =
                     (from.is_const().map(to_num), to.is_const().map(to_num))
+                    && from != to
+                    && (from > to) == up
                 {
-                    if from != to && (from > to) == up {
-                        return Vec::new();
-                    }
+                    return Vec::new();
                 }
                 vec![
                     Statement::CounterLoop {

@@ -104,11 +104,11 @@ impl<'s, 'f> Lexer<'s, 'f> {
                 && (state == NumState::Fraction || state == NumState::Initial)
             {
                 state = NumState::Exponent;
-                if let Some(next) = self.lookahead() {
-                    if next == '+' || next == '-' {
-                        str.push(next);
-                        self.next_char();
-                    }
+                if let Some(next) = self.lookahead()
+                    && (next == '+' || next == '-')
+                {
+                    str.push(next);
+                    self.next_char();
                 }
             } else if !c.is_alphanumeric() {
                 self.put_back();
@@ -125,9 +125,9 @@ impl<'s, 'f> Lexer<'s, 'f> {
 
     fn get_base(&mut self, c: char) -> (u32, String) {
         let mut str = String::from(c);
-        let base = if c != '0' {
-            10
-        } else if let Some(c_next) = self.lookahead() {
+        let base = if c == '0'
+            && let Some(c_next) = self.lookahead()
+        {
             match c_next {
                 'b' => 2,
                 'o' => 8,
@@ -180,10 +180,10 @@ impl<'s, 'f> Lexer<'s, 'f> {
     fn match_identifier(&mut self) -> Result<LexToken, LexError> {
         self.put_back();
         let str = self.get_identifier();
-        if let Ok(kw) = str.parse::<Keyword>() {
-            if kw.enabled(self.features) {
-                return Ok(LexToken::Keyword(kw));
-            }
+        if let Ok(kw) = str.parse::<Keyword>()
+            && kw.enabled(self.features)
+        {
+            return Ok(LexToken::Keyword(kw));
         }
         if let Some(idx) = self.symbols.get_index_of(&str) {
             Ok(LexToken::Identifier(idx))
