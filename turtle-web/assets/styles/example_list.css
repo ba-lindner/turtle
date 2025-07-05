@@ -1,0 +1,55 @@
+.example {
+    border: 1px solid gray;
+    padding: 5px;
+    border-radius: 1em;
+    margin: 0.5em;
+}
+
+.descr {
+    margin: .6em;
+}
+
+.run {
+    background-color: aqua;
+    border: none;
+    border-radius: .35em;
+    margin: .6em;
+    cursor: pointer;
+    position: relative;
+    display: inline-block;
+}
+
+.run:hover {
+    background-color: lightblue;
+}
+
+.run>.tooltip {
+    visibility: hidden;
+    background-color: rgb(77, 77, 77);
+    color: #fff;
+    text-align: center;
+    padding: 5px 0;
+    border-radius: 6px;
+
+    position: absolute;
+    z-index: 1;
+    width: 120px;
+    top: 150%;
+    left: 50%;
+    margin-left: -40px;
+}
+
+.run>.tooltip::after {
+    content: " ";
+    position: absolute;
+    bottom: 100%;
+    left: 33%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent rgb(77, 77, 77) transparent;
+}
+
+.run:hover>.tooltip {
+    visibility: visible;
+}
