@@ -4,12 +4,7 @@ function runExample(ex) {
         data: JSON.stringify([]),
         contentType: "application/json",
         success: function (uuid) {
-            $.ajax(`/run/${uuid}/debug`, {
-                type: "POST",
-                data: JSON.stringify("run"),
-                contentType: "application/json",
-            })
-            window.location.href = `/viewRun?id=${uuid}`
+            window.location.href = `/viewRun.html?id=${uuid}`
         }
     })
 }

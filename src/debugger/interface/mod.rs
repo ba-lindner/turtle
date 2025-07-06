@@ -71,7 +71,7 @@ pub trait DbgInterface {
 /// common implementation of the `DbgInterface`, where
 /// repeatedly a command is first obtained from user
 /// input and then executed.
-trait CommonInterface {
+pub trait CommonInterface {
     type Command;
 
     /// An optional greeting.

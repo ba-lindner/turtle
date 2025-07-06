@@ -49,7 +49,10 @@ impl CommonInterface for Terminal {
         run: &mut Debugger<'p, W>,
         cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
-        let res = cmd.exec(run)?;
+        let (res, end) = cmd.exec(run);
+        if let Some(end) = end {
+            return Err(end);
+        }
         if let Some(out) = res.output {
             println!("{}", out.with_symbols(&run.prog.symbols));
         }

@@ -39,6 +39,10 @@
     color: red;
 }
 
+.terminal [kind=ttl] {
+    color: green;
+}
+
 .terminal input {
     display: table-cell;
     background: black;

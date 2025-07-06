@@ -26,7 +26,7 @@ impl<'a> RunConfig<'a, VoidWindow, Terminal> {
     pub fn new(args: &'a [String]) -> Self {
         Self {
             args,
-            window: (0.0, 0.0),
+            window: VoidWindow::default(),
             kind: RunKind::Interpret,
         }
     }

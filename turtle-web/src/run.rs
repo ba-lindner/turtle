@@ -9,24 +9,61 @@ use std::{
 };
 
 use anyhow::Result;
+use tokio::sync::mpsc::{Sender as TSender, Receiver as TReceiver};
 use turtle::{
-    TProgram,
     debugger::{
         config::RunConfig,
         interface::{
-            ChannelInterface,
-            commands::{CmdResult, DbgCommand},
+            commands::{CmdResult, DbgCommand}, CommonInterface,
         },
-        window::{ChannelWindow, WindowCmd, WindowEvent},
-    },
+        window::{ChannelWindow, WindowCmd, WindowEvent}, ProgEnd,
+    }, TProgram
 };
+
+struct AsyncInterface {
+    inputs: Receiver<DbgCommand>,
+    outputs: TSender<(CmdResult, Option<ProgEnd>)>,
+}
+
+impl AsyncInterface {
+    fn construct() -> (Self, Sender<DbgCommand>, TReceiver<(CmdResult, Option<ProgEnd>)>) {
+        let (in_tx, in_rx) = mpsc::channel();
+        let (out_tx, out_rx) = tokio::sync::mpsc::channel(100);
+        (Self {
+            inputs: in_rx,
+            outputs: out_tx,
+        }, in_tx, out_rx)
+    }
+}
+
+impl CommonInterface for AsyncInterface {
+    type Command = DbgCommand;
+
+    fn get_command(&mut self) -> Option<Self::Command> {
+        self.inputs.recv().ok()
+    }
+
+    fn exec_cmd<'p, W: turtle::debugger::window::Window + 'p>(
+        &mut self,
+        run: &mut turtle::debugger::Debugger<'p, W>,
+        cmd: Self::Command,
+    ) -> std::result::Result<(), turtle::debugger::ProgEnd> {
+        let res = cmd.exec(run);
+        let end = res.1;
+        futures::executor::block_on(self.outputs.send(res)).map_err(|_| ProgEnd::WindowExited)?;
+        if let Some(end) = end {
+            return Err(end)
+        }
+        Ok(())
+    }
+}
 
 pub struct Run {
     pub prog: Arc<TProgram>,
     commands: Receiver<WindowCmd>,
     events: Sender<WindowEvent>,
     inputs: Sender<DbgCommand>,
-    outputs: Receiver<CmdResult>,
+    outputs: TReceiver<(CmdResult, Option<ProgEnd>)>,
     last_change: Instant,
     window: Vec<WindowCmd>,
     finished: Arc<AtomicBool>,
@@ -37,8 +74,7 @@ impl Run {
         let prog = Arc::new(prog);
         let t_prog = Arc::clone(&prog);
         let (window, commands, events) = ChannelWindow::construct();
-        let (in_tx, in_rx) = mpsc::channel();
-        let (interface, outputs) = ChannelInterface::construct(in_rx);
+        let (interface, inputs, outputs) = AsyncInterface::construct();
         let finished = Arc::new(AtomicBool::new(false));
         let t_finished = Arc::clone(&finished);
         thread::spawn(move || {
@@ -52,7 +88,7 @@ impl Run {
             prog,
             commands,
             events,
-            inputs: in_tx,
+            inputs,
             outputs,
             last_change: Instant::now(),
             window: Vec::new(),
@@ -65,10 +101,10 @@ impl Run {
         self.finished.store(true, Ordering::Relaxed);
     }
 
-    pub fn exec_cmd(&mut self, cmd: DbgCommand) -> Result<CmdResult> {
+    pub async fn exec_cmd(&mut self, cmd: DbgCommand) -> Result<(CmdResult, Option<ProgEnd>)> {
         self.last_change = Instant::now();
         self.inputs.send(cmd)?;
-        Ok(self.outputs.recv()?)
+        Ok(self.outputs.recv().await.unwrap_or_default())
     }
 
     pub fn report_event(&mut self, event: WindowEvent) -> Result<()> {

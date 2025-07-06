@@ -36,8 +36,11 @@ impl<I: Iterator<Item = DbgCommand>> CommonInterface for ChannelInterface<I> {
         run: &mut Debugger<'p, W>,
         cmd: Self::Command,
     ) -> Result<(), ProgEnd> {
-        let res = cmd.exec(run)?;
+        let (res, end) = cmd.exec(run);
         self.outputs.send(res).map_err(|_| ProgEnd::WindowExited)?;
+        if let Some(end) = end {
+            return Err(end)
+        }
         Ok(())
     }
 }

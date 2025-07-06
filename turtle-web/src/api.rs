@@ -7,13 +7,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use turtle::{
-    Disp, TProgram,
     debugger::{
-        interface::commands::{CmdOutput, NoCmdReason, parse_command},
-        window::{WindowCmd, WindowEvent},
-    },
-    examples::Example,
-    pos::FilePos,
+        interface::commands::{parse_command, CmdOutput, NoCmdReason}, window::{WindowCmd, WindowEvent}, ProgEnd
+    }, examples::Example, pos::FilePos, Disp, TProgram
 };
 use uuid::Uuid;
 
@@ -51,7 +47,7 @@ pub async fn example_list() -> Json<Value> {
 pub async fn new_prog(
     State(state): AppState,
 ) -> (StatusCode, [(HeaderName, String); 1], Json<Uuid>) {
-    let id = state.lock().new_prog(Prog::new());
+    let id = state.lock().await.new_prog(Prog::new());
     (
         StatusCode::CREATED,
         [(LOCATION, format!("/prog/{id}"))],
@@ -65,7 +61,7 @@ pub async fn get_prog_meta(
     auth: Auth,
 ) -> WebResult<Json<Value>> {
     Ok(Json(serde_json::to_value(
-        state.lock().get_prog(&id, auth)?,
+        state.lock().await.get_prog(&id, auth)?,
     )?))
 }
 
@@ -75,7 +71,7 @@ pub async fn set_prog_meta(
     auth: Auth,
     Json(meta): Json<Prog>,
 ) -> WebResult<()> {
-    state.lock().get_prog_mut(&id, auth)?.update(meta);
+    state.lock().await.get_prog_mut(&id, auth)?.update(meta);
     Ok(())
 }
 
@@ -84,7 +80,7 @@ pub async fn get_prog_code(
     Path(id): Path<Uuid>,
     auth: Auth,
 ) -> WebResult<String> {
-    Ok(state.lock().get_prog(&id, auth)?.get_code()?.to_string())
+    Ok(state.lock().await.get_prog(&id, auth)?.get_code()?.to_string())
 }
 
 pub async fn set_prog_code(
@@ -93,7 +89,7 @@ pub async fn set_prog_code(
     auth: Auth,
     code: String,
 ) -> WebResult<()> {
-    state.lock().get_prog_mut(&id, auth)?.set_code(code);
+    state.lock().await.get_prog_mut(&id, auth)?.set_code(code);
     Ok(())
 }
 
@@ -136,7 +132,7 @@ pub async fn check_prog(
         }
     }
 
-    if let Some(err) = state.lock().get_prog(&id, auth)?.check()? {
+    if let Some(err) = state.lock().await.get_prog(&id, auth)?.check()? {
         let msg = err.to_string();
         let spans = match err {
             turtle::TurtleError::LexErrors(items) => {
@@ -181,7 +177,7 @@ pub async fn run_example(
         .ok_or(anyhow!("no example named '{name}'"))
         .err_status(StatusCode::NOT_FOUND)?;
     let prog = TProgram::from_example(ex)?;
-    let id = state.lock().start_run(prog, args);
+    let id = state.lock().await.start_run(prog, args);
     Ok(Json(id))
 }
 
@@ -191,7 +187,7 @@ pub async fn run_prog(
     auth: Auth,
     Json(args): Json<Vec<String>>,
 ) -> WebResult<Json<Uuid>> {
-    let mut state = state.lock();
+    let mut state = state.lock().await;
     let prog = state.get_prog(&id, auth)?.get_prog()?;
     let id = state.start_run(prog, args);
     Ok(Json(id))
@@ -224,7 +220,7 @@ pub async fn window_output(
     Path(id): Path<Uuid>,
     Query(WindowQuery { skip }): Query<WindowQuery>,
 ) -> WebResult<Json<Value>> {
-    let mut state = state.lock();
+    let mut state = state.lock().await;
     let outp = state
         .get_run(&id)?
         .get_window_output()
@@ -268,12 +264,12 @@ pub async fn report_event(
     Json(evt): Json<Value>,
 ) -> WebResult<()> {
     let evt = parse_event(evt)?;
-    state.lock().get_run(&id)?.report_event(evt)?;
+    state.lock().await.get_run(&id)?.report_event(evt)?;
     Ok(())
 }
 
 pub async fn stop_run(State(state): AppState, Path(id): Path<Uuid>) -> WebResult<()> {
-    state.lock().get_run(&id)?.stop();
+    state.lock().await.get_run(&id)?.stop();
     Ok(())
 }
 
@@ -300,15 +296,15 @@ pub async fn debug(
         Ok(cmd) => cmd,
         Err(NoCmdReason::Empty) => return Ok(Json(json!({}))),
         Err(NoCmdReason::Quit) => {
-            state.lock().get_run(&id)?.stop();
+            state.lock().await.get_run(&id)?.stop();
             return Ok(Json(json!({"quit": true})));
         }
         Err(NoCmdReason::Help(help)) => return Ok(Json(json!({"help": help}))),
         Err(NoCmdReason::Err(why)) => return Ok(Json(json!({"parse_err": why.to_string()}))),
     };
-    let mut state = state.lock();
+    let mut state = state.lock().await;
     let run = state.get_run(&id)?;
-    let res = run.exec_cmd(cmd)?;
+    let (res, end) = run.exec_cmd(cmd).await?;
     let mut ret = serde_json::Map::new();
     if formatted == Some(true)
         && let Some(outp) = res.output
@@ -418,5 +414,11 @@ pub async fn debug(
             .collect(),
     );
     ret.insert("events".to_string(), events);
+    if let Some(end) = end {
+        ret.insert("end".to_string(), match end {
+            ProgEnd::AllTurtlesFinished => json!("finished"),
+            ProgEnd::WindowExited => json!("exited"),
+        });
+    }
     Ok(Json(Value::Object(ret)))
 }

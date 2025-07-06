@@ -118,6 +118,7 @@ dbg_commands! { run
     Execute(String) |stmt| { run.exec_stmt(&stmt)? } return execute (finished bool)
 }
 
+#[derive(Default)]
 pub struct CmdResult {
     pub output: Option<CmdOutput>,
     pub error: Option<DebugErr>,
@@ -143,24 +144,24 @@ impl From<DebugErr> for StopCause {
 }
 
 impl DbgCommand {
-    pub fn exec<'p, W: Window + 'p>(self, run: &mut Debugger<'p, W>) -> Result<CmdResult, ProgEnd> {
+    pub fn exec<'p, W: Window + 'p>(self, run: &mut Debugger<'p, W>) -> (CmdResult, Option<ProgEnd>) {
         let (output, stop) = match self.call_debugger(run) {
             Ok(Some(out)) => (Some(out), None),
             Ok(None) => (None, None),
             Err(why) => (None, Some(why)),
         };
         let (stmt_count, run_events) = run.events();
-        let error = match stop {
-            None => None,
-            Some(StopCause::Err(err)) => Some(err),
-            Some(StopCause::ProgEnd(end)) => return Err(end),
+        let (error, stop) = match stop {
+            None => (None, None),
+            Some(StopCause::Err(err)) => (Some(err), None),
+            Some(StopCause::ProgEnd(end)) => (None, Some(end)),
         };
-        Ok(CmdResult {
+        (CmdResult {
             output,
             error,
             stmt_count,
             run_events,
-        })
+        }, stop)
     }
 }
 

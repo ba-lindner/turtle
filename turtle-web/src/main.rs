@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, thread, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -7,15 +7,15 @@ use axum::{
     http::{Method, StatusCode},
     routing::{get, post, put},
 };
-use parking_lot::Mutex;
 use prog::Prog;
 use run::Run;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::Mutex};
 use tower_http::{
     cors::{Any, CorsLayer},
-    services::ServeDir,
+    services::ServeDir, trace::TraceLayer,
 };
 
+use tracing_subscriber::filter::LevelFilter;
 use uuid::Uuid;
 
 mod api;
@@ -32,7 +32,7 @@ use crate::prog::{Auth, Permission};
     programs.json
     <prog_id_1>.tg
     <prog_id_2>.tg
-/static
+/assets
     index.html
     script.js
     styles.css
@@ -43,20 +43,26 @@ type AppState = State<Arc<Mutex<FullState>>>;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
+    // init turtle
     let state = FullState::load();
-    std::fs::create_dir("data")?;
-    gc_job(state.clone(), Duration::from_secs(60 * 15));
+    _ = std::fs::create_dir("data");
+    tokio::spawn(gc_job(state.clone(), Duration::from_secs(60 * 15)));
+    // init layers
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST])
         .allow_origin(Any);
+    tracing_subscriber::fmt()
+        .with_max_level(LevelFilter::DEBUG)
+        .init();
+    // start axum
     let app = Router::new()
         .route("/examples", get(api::example_list))
         .route("/prog", post(api::new_prog))
-        .route("/prog/{if}", get(api::get_prog_meta))
-        .route("/prog/{if}", put(api::set_prog_meta))
-        .route("/prog/{if}/code", get(api::get_prog_code))
-        .route("/prog/{if}/code", put(api::set_prog_code))
-        .route("/prog/{if}/check", post(api::check_prog))
+        .route("/prog/{id}", get(api::get_prog_meta))
+        .route("/prog/{id}", put(api::set_prog_meta))
+        .route("/prog/{id}/code", get(api::get_prog_code))
+        .route("/prog/{id}/code", put(api::set_prog_code))
+        .route("/prog/{id}/check", post(api::check_prog))
         .route("/examples/{name}/run", post(api::run_example))
         .route("/prog/{id}/run", post(api::run_prog))
         .route("/run/{id}/window", get(api::window_output))
@@ -65,6 +71,7 @@ async fn main() -> Result<(), std::io::Error> {
         .route("/run/{id}/debug", post(api::debug))
         .fallback_service(ServeDir::new("assets"))
         .layer(cors)
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
     let listener = TcpListener::bind(("0.0.0.0", 8000)).await?;
     axum::serve(listener, app).await
@@ -150,18 +157,16 @@ impl FullState {
     }
 }
 
-fn gc_job(state: Arc<Mutex<FullState>>, max_idle: Duration) {
-    thread::spawn(move || {
-        loop {
-            {
-                let mut state = state.lock();
-                state.save();
-                for run in state.runs.values() {
-                    run.gc(max_idle);
-                }
-                state.runs.retain(|_, r| !r.finished());
+async fn gc_job(state: Arc<Mutex<FullState>>, max_idle: Duration) {
+    loop {
+        {
+            let mut state = state.lock().await;
+            state.save();
+            for run in state.runs.values() {
+                run.gc(max_idle);
             }
-            thread::sleep(Duration::from_secs(5));
+            state.runs.retain(|_, r| !r.finished());
         }
-    });
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 }
