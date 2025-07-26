@@ -23,7 +23,7 @@ macro_rules! parse_this {
             let mut cnt = 0;
             $(
                 cnt += 1;
-                ltokens.push($lex.attach_pos(crate::FilePos::new(cnt, 1)));
+                ltokens.push($lex.with_span((crate::FilePos::new(cnt, 1), crate::FilePos::new(cnt, 1))));
             )+
         }
         let mut feat = crate::features::FeatureConf::default();
@@ -41,19 +41,20 @@ macro_rules! parse_this {
 }
 
 macro_rules! block {
-    ($start:literal { $($spos:literal $skind:ident $sargs:tt)* }) => {
+    ($start:literal $end:literal { $($sstart:literal $send:literal $skind:ident $sargs:tt)* }) => {
         crate::tokens::Block {
-            begin: crate::FilePos::new($start, 1),
+            begin: crate::Span::new(crate::FilePos::new($start, 1), crate::FilePos::new($start, 1)),
+            full: crate::Span::new(crate::FilePos::new($start, 1), crate::FilePos::new($end, 1)),
             statements: vec![
-                $(stmt!($spos $skind $sargs)),*
+                $(stmt!($sstart $send $skind $sargs)),*
             ],
         }
     };
 }
 
 macro_rules! stmt {
-    ($pos:literal $kind:ident $args:tt) => {
-        crate::Pos::new(stmt!(@args $kind $kind $args), crate::FilePos::new($pos, 1))
+    ($start:literal $end:literal $kind:ident $args:tt) => {
+        crate::Spanned::new(stmt!(@args $kind $kind $args), (crate::FilePos::new($start, 1), crate::FilePos::new($end, 1)))
     };
     (@args MoveDist $kind:ident (
         $s:literal $e:literal $k:ident $a:tt ,
@@ -125,31 +126,31 @@ macro_rules! stmt {
     };
     (@args IfBranch $kind:ident (
         $start:literal $end:literal $ekind:ident $eargs:tt ,
-        $bstart:literal $block:tt $(,)?
+        $bstart:literal $bend:literal $block:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind(
             expr!($start $end $ekind $eargs),
-            block!($bstart $block),
+            block!($bstart $bend $block),
         )
     };
     (@args IfElseBranch $kind:ident (
         $start:literal $end:literal $ekind:ident $eargs:tt ,
-        $bstart:literal $block:tt ,
-        $estart:literal $eblock:tt $(,)?
+        $bstart:literal $bend:literal $block:tt ,
+        $estart:literal $eend:literal $eblock:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind(
             expr!($start $end $ekind $eargs),
-            block!($bstart $block),
-            block!($estart $eblock),
+            block!($bstart $bend $block),
+            block!($estart $eend $eblock),
         )
     };
     (@args DoLoop $kind:ident (
         $start:literal $end:literal $ekind:ident $eargs:tt ,
-        $bstart:literal $block:tt $(,)?
+        $bstart:literal $bend:literal $block:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind(
             expr!($start $end $ekind $eargs),
-            block!($bstart $block),
+            block!($bstart $bend $block),
         )
     };
     (@args CounterLoop $kind:ident (
@@ -158,7 +159,7 @@ macro_rules! stmt {
         $up:expr,
         $ts:literal $te:literal $tk:ident $ta:tt,
         $(step: $ss:literal $se:literal $sk:ident $sa:tt,)?
-        $bs:literal $block:tt $(,)?
+        $bs:literal $be:literal $block:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind {
             counter: var!($cp $ck $ca),
@@ -166,25 +167,25 @@ macro_rules! stmt {
             up: $up,
             to: expr!($ts $te $tk $ta),
             step: None $(.unwrap_or(expr!($ss $se $sk $sa)))?,
-            body: block!($bs $block),
+            body: block!($bs $be $block),
         }
     };
     (@args WhileLoop $kind:ident (
         $start:literal $end:literal $ekind:ident $eargs:tt ,
-        $bstart:literal $block:tt $(,)?
+        $bstart:literal $bend:literal $block:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind(
             expr!($start $end $ekind $eargs),
-            block!($bstart $block),
+            block!($bstart $bend $block),
         )
     };
     (@args RepeatLoop $kind:ident (
         $start:literal $end:literal $ekind:ident $eargs:tt ,
-        $bstart:literal $block:tt $(,)?
+        $bstart:literal $bend:literal $block:tt $(,)?
     )) => {
         crate::tokens::Statement::$kind(
             expr!($start $end $ekind $eargs),
-            block!($bstart $block),
+            block!($bstart $bend $block),
         )
     };
     (@args $_:ident $kind:ident ()) => {
@@ -194,7 +195,7 @@ macro_rules! stmt {
 
 macro_rules! expr {
     ($start:literal $end:literal $kind:ident $args:tt) => {
-        expr!(@args $kind $kind $args).at(crate::FilePos::new($start, 1), crate::FilePos::new($end, 1))
+        expr!(@args $kind $kind $args).at((crate::FilePos::new($start, 1), crate::FilePos::new($end, 1)))
     };
     (@args Const $kind:ident ($val:expr)) => {
         {
@@ -254,7 +255,7 @@ macro_rules! expr {
 
 macro_rules! var {
     ($pos:literal $kind:ident $arg:expr) => {
-        var!(@args $kind $kind $arg).at(crate::FilePos::new($pos, 1))
+        var!(@args $kind $kind $arg).at((crate::FilePos::new($pos, 1), crate::FilePos::new($pos, 1)))
     };
     (@args GlobalPreDef $kind:ident $arg:expr) => {
         crate::tokens::VariableKind::$kind($arg)

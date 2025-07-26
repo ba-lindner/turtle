@@ -112,7 +112,7 @@ impl<'p, W: Window> TurtleTask<'p, W> {
             }
             self.check_cmds().await;
             for stmt in &block.statements {
-                self.curr_pos = stmt.get_pos();
+                self.curr_pos = stmt.get_start();
                 self.turtle.borrow_mut().stack.last_mut().unwrap().curr_pos = self.curr_pos;
                 // before
                 self.ret(DbgAction::BeforeStmt, self.ctx.debug).await;

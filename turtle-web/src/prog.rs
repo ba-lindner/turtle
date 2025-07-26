@@ -108,7 +108,7 @@ impl Prog {
         conf
     }
 
-    pub fn check(&self) -> WebResult<Option<turtle::TurtleError>> {
+    pub fn check(&self) -> WebResult<Option<turtle::ProgError>> {
         Ok(TProgram::parse(self.get_code()?, false, self.feature_conf()).err())
     }
 

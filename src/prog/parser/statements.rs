@@ -1,20 +1,25 @@
 use super::{LexToken, PRes, ParseError, Parser, TokenExpectation};
-use crate::{FilePos, Identified, Pos, Positionable, features::Feature, tokens::*};
+use crate::{Identified, Positionable, Spanned, features::Feature, tokens::*};
 
-impl Parser<'_, '_> {
-    pub(super) fn parse_statements(&mut self, begin: FilePos, end_key: Keyword) -> PRes<Block> {
+impl Parser<'_> {
+    pub(super) fn parse_statements(&mut self, end_key: Keyword) -> PRes<Block> {
+        let begin = self.last_span();
         let mut statements = Vec::new();
         while !self.match_keyword(end_key) {
             statements.push(self.parse_stm()?);
         }
-        Ok(Block { begin, statements })
+        Ok(Block {
+            begin,
+            full: begin.to(self.last_span()),
+            statements,
+        })
     }
 
-    pub fn parse_stm(&mut self) -> PRes<Pos<Statement>> {
-        let Some(LexToken::Keyword(kw)) = self.lookahead() else {
+    pub fn parse_stm(&mut self) -> PRes<Spanned<Statement>> {
+        let Ok(LexToken::Keyword(kw)) = self.lookahead() else {
             return Err(self.unexpected_token(TokenExpectation::Statement));
         };
-        let fp = self.curr_pos();
+        let span = self.curr_span();
         self.pos += 1;
         Ok(match kw {
             Keyword::Walk => self.parse_move(true),
@@ -25,14 +30,14 @@ impl Parser<'_, '_> {
             Keyword::Clear => Ok(Statement::Clear),
             Keyword::Stop => Ok(Statement::Stop),
             Keyword::Finish => Ok(Statement::Finish),
-            Keyword::Path => self.parse_path_call(false),
+            Keyword::Path => self.parse_path_call(Statement::PathCall),
             Keyword::Store => {
                 let expr = self.parse_expr()?;
                 self.expect_keyword(Keyword::In)?;
                 let var = self.parse_variable()?;
-                if let VariableKind::GlobalPreDef(pdv) = var.kind {
+                if let VariableKind::GlobalPreDef(pdv) = *var.0 {
                     if !pdv.is_writeable() {
-                        return Err(ParseError::WriteToReadOnly(pdv).attach_pos(var.pos));
+                        return Err(ParseError::WriteToReadOnly(pdv).with_span(var.0.get_span()));
                     }
                 }
                 Ok(Statement::Store(expr, var))
@@ -52,37 +57,37 @@ impl Parser<'_, '_> {
             }
             Keyword::Split => {
                 self.expect_feature(Feature::Multithreading)?;
-                self.parse_path_call(true)
+                self.parse_path_call(Statement::Split)
             }
             Keyword::Wait => {
                 self.expect_feature(Feature::Multithreading)?;
                 Ok(Statement::Wait)
             }
-            Keyword::If => self.parse_if(fp),
+            Keyword::If => self.parse_if(),
             Keyword::Do => {
                 let expr = self.parse_expr()?;
                 self.expect_keyword(Keyword::Times)?;
                 Ok(Statement::DoLoop(
                     expr,
-                    self.parse_statements(fp, Keyword::Done)?,
+                    self.parse_statements(Keyword::Done)?,
                 ))
             }
-            Keyword::Counter => self.parse_counter(fp),
+            Keyword::Counter => self.parse_counter(),
             Keyword::While => {
                 let cond = self.parse_expr()?;
                 self.expect_keyword(Keyword::Do)?;
                 Ok(Statement::WhileLoop(
                     cond,
-                    self.parse_statements(fp, Keyword::Done)?,
+                    self.parse_statements(Keyword::Done)?,
                 ))
             }
             Keyword::Repeat => {
-                let stmts = self.parse_statements(fp, Keyword::Until)?;
+                let stmts = self.parse_statements(Keyword::Until)?;
                 Ok(Statement::RepeatLoop(self.parse_expr()?, stmts))
             }
-            c => Err(ParseError::UnknownStatement(c).attach_pos(fp)),
+            c => Err(ParseError::UnknownStatement(c).with_span(span)),
         }?
-        .attach_pos(fp))
+        .with_span(span.to(self.last_span())))
     }
 
     pub(super) fn parse_move(&mut self, draw: bool) -> PRes<Statement> {
@@ -121,19 +126,18 @@ impl Parser<'_, '_> {
         Ok(Statement::Color(expr_red, expr_green, expr_blue))
     }
 
-    pub(super) fn parse_path_call(&mut self, split: bool) -> PRes<Statement> {
+    pub(super) fn parse_path_call(
+        &mut self,
+        stmt: impl FnOnce(usize, ArgList) -> Statement,
+    ) -> PRes<Statement> {
         let name = self.match_identifier()?;
-        let args = if self.lookahead() == Some(LexToken::Symbol('(')) {
+        let args = if self.lookahead() == Ok(LexToken::Symbol('(')) {
             self.parse_args(None)?
         } else {
             Vec::new()
         };
         self.set_ident_type(name, Identified::Path)?;
-        if split {
-            Ok(Statement::Split(name, args))
-        } else {
-            Ok(Statement::PathCall(name, args))
-        }
+        Ok(stmt(name, args))
     }
 
     pub(super) fn parse_calc_stm(
@@ -156,33 +160,38 @@ impl Parser<'_, '_> {
         Ok(Statement::Calc { val, var, op })
     }
 
-    pub(super) fn parse_if(&mut self, begin: FilePos) -> PRes<Statement> {
+    pub(super) fn parse_if(&mut self) -> PRes<Statement> {
         let cond = self.parse_expr()?;
+        let if_start = self.curr_span();
         self.expect_keyword(Keyword::Then)?;
         let mut statements = Vec::new();
-        let else_start = loop {
-            let fp = self.curr_pos();
+        let (has_else, if_end) = loop {
+            let fp = self.curr_span();
             if self.match_keyword(Keyword::Else) {
-                break Some(fp);
+                break (true, fp);
             }
             if self.match_keyword(Keyword::Endif) {
-                break None;
+                break (false, fp);
             }
             statements.push(self.parse_stm()?);
         };
-        let if_block = Block { begin, statements };
-        if let Some(else_start) = else_start {
+        let if_block = Block {
+            begin: if_start,
+            full: if_start.to(if_end),
+            statements,
+        };
+        if has_else {
             Ok(Statement::IfElseBranch(
                 cond,
                 if_block,
-                self.parse_statements(else_start, Keyword::Endif)?,
+                self.parse_statements(Keyword::Endif)?,
             ))
         } else {
             Ok(Statement::IfBranch(cond, if_block))
         }
     }
 
-    pub(super) fn parse_counter(&mut self, begin: FilePos) -> PRes<Statement> {
+    pub(super) fn parse_counter(&mut self) -> PRes<Statement> {
         let counter = self.parse_variable()?;
         self.expect_keyword(Keyword::From)?;
         let from = self.parse_expr()?;
@@ -203,7 +212,7 @@ impl Parser<'_, '_> {
             up,
             to,
             step,
-            body: self.parse_statements(begin, Keyword::Done)?,
+            body: self.parse_statements(Keyword::Done)?,
         })
     }
 }

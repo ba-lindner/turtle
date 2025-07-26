@@ -1,14 +1,30 @@
-use std::fmt::{Display, Write as _};
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
-use crate::{SymbolTable, pos::FilePos};
+use crate::{
+    Commas, Disp, SymbolTable,
+    pos::{Positionable, Span, Spanned},
+};
 
-use super::{ArgList, Narrate, PredefFunc, ValType, Value, Variable};
+use super::{ArgList, PredefFunc, ValType, Value, Variable};
 
 #[derive(Debug, PartialEq)]
-pub struct Expr {
-    pub start: FilePos,
-    pub end: FilePos,
-    pub kind: ExprKind,
+pub struct Expr(pub Spanned<ExprKind>);
+
+impl Deref for Expr {
+    type Target = Spanned<ExprKind>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Expr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -25,62 +41,49 @@ pub enum ExprKind {
 }
 
 impl ExprKind {
-    pub fn at(self, start: FilePos, end: FilePos) -> Expr {
-        Expr {
-            start,
-            end,
-            kind: self,
-        }
+    pub fn at(self, span: impl Into<Span>) -> Expr {
+        Expr(self.with_span(span))
     }
 }
 
-impl Narrate for Expr {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
-        match &self.kind {
-            ExprKind::Const(val) => {
-                let _ = write!(buf, "{val}");
-            }
-            ExprKind::Variable(var) => var.narrate_buf(symbols, buf),
+impl Disp for Expr {
+    fn disp(&self, f: &mut std::fmt::Formatter, symbols: &SymbolTable) -> std::fmt::Result {
+        match &*self.0 {
+            ExprKind::Const(val) => val.fmt(f),
+            ExprKind::Variable(var) => var.disp(f, symbols),
             ExprKind::BiOperation(lhs, op, rhs) => {
-                lhs.narrate_buf(symbols, buf);
-                let _ = write!(buf, "{op}");
-                rhs.narrate_buf(symbols, buf);
+                write!(
+                    f,
+                    "{}{op}{}",
+                    lhs.with_symbols(symbols),
+                    rhs.with_symbols(symbols)
+                )
             }
             ExprKind::UnOperation(op, expr) => {
-                let _ = write!(buf, "{op}");
-                expr.narrate_buf(symbols, buf);
+                write!(f, "{op}{}", expr.with_symbols(symbols))
             }
             ExprKind::Absolute(expr) => {
-                let _ = write!(buf, "|");
-                expr.narrate_buf(symbols, buf);
-                let _ = write!(buf, "|");
+                write!(f, "|{}|", expr.with_symbols(symbols))
             }
             ExprKind::Bracket(expr) => {
-                let _ = write!(buf, "(");
-                expr.narrate_buf(symbols, buf);
-                let _ = write!(buf, ")");
+                write!(f, "({})", expr.with_symbols(symbols))
             }
             ExprKind::Convert(from, to) => {
-                let _ = write!(buf, "{to}(");
-                from.narrate_buf(symbols, buf);
-                let _ = write!(buf, ")");
+                write!(f, "{to}({})", from.with_symbols(symbols))
             }
             ExprKind::FuncCall(pdf, args) => {
-                let _ = write!(buf, "{pdf}(");
-                args.narrate_buf(symbols, buf);
-                let _ = write!(buf, ")");
+                write!(f, "{pdf}({})", Commas(args, ", ").with_symbols(symbols))
             }
             ExprKind::CalcCall(id, args) => {
-                let _ = write!(
-                    buf,
-                    "{}(",
+                write!(
+                    f,
+                    "{}({})",
                     symbols
                         .get_index(*id)
                         .expect("missing calc in symbol table")
-                        .0
-                );
-                args.narrate_buf(symbols, buf);
-                let _ = write!(buf, ")");
+                        .0,
+                    Commas(args, ", ").with_symbols(symbols)
+                )
             }
         }
     }
@@ -104,6 +107,7 @@ pub enum BiOperator {
 }
 
 impl BiOperator {
+    /// returns all possible `(inp, out)` pairs
     pub fn types(&self) -> Vec<(ValType, ValType)> {
         match self {
             BiOperator::Add => vec![

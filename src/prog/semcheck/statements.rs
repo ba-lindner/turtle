@@ -1,24 +1,53 @@
 use crate::{
-    TurtleError,
-    pos::Pos,
-    tokens::{Statement, ValType, VariableKind},
+    pos::{Positionable, Spanned},
+    prog::Otherwise,
+    tokens::{Expr, Statement, ValType, VariableKind},
 };
 
 use super::{CheckContext, TypeError, Vars};
 
-impl Pos<Statement> {
-    pub(crate) fn semantic_check(&mut self, ctx: &mut CheckContext) -> Result<Vars, TurtleError> {
-        let pos = self.get_pos();
-        let e_map = |e: TypeError| TurtleError::TypeError(e, pos);
+impl Spanned<Statement> {
+    pub(crate) fn semantic_check(
+        &mut self,
+        ctx: &mut CheckContext,
+    ) -> Result<Vars, Vec<Spanned<TypeError>>> {
+        let span = self.get_span();
+        let e_map = |e: TypeError| e.with_span(span);
+        let mut errs = Vec::new();
+        let mut vars = Vars::new();
+        macro_rules! add_res {
+            ($res:expr) => {
+                match $res {
+                    Ok(v) => vars &= v,
+                    Err(mut e) => errs.append(&mut e),
+                }
+            };
+        }
+        macro_rules! var_expr {
+            ($ve:expr, $ee:expr => $vo:ident, $eo:ident {$($t:tt)*}) => {
+                match ($ve, $ee) {
+                    (Err(one), Err(mut many)) => {
+                        errs.push(one);
+                        errs.append(&mut many);
+                    }
+                    (Err(one), Ok(_)) => {
+                        errs.push(one);
+                    }
+                    (Ok(_), Err(mut many)) => {
+                        errs.append(&mut many);
+                    }
+                    (Ok($vo), Ok($eo)) => {$($t)*}
+                }
+            };
+        }
         match &mut **self {
             Statement::MoveDist { dist: expr, .. }
             | Statement::Turn { by: expr, .. }
-            | Statement::Direction(expr) => Ok(expr.expect_type(ValType::Number, ctx)?),
+            | Statement::Direction(expr) => add_res!(expr.expect_type(ValType::Number, ctx)),
             Statement::Color(r, g, b) => {
-                let r = r.expect_type(ValType::Number, ctx)?;
-                let g = g.expect_type(ValType::Number, ctx)?;
-                let b = b.expect_type(ValType::Number, ctx)?;
-                Ok(r & g & b)
+                add_res!(r.expect_type(ValType::Number, ctx));
+                add_res!(g.expect_type(ValType::Number, ctx));
+                add_res!(b.expect_type(ValType::Number, ctx));
             }
             Statement::MoveHome(_)
             | Statement::Clear
@@ -26,78 +55,90 @@ impl Pos<Statement> {
             | Statement::Finish
             | Statement::Mark
             | Statement::Wait
-            | Statement::MoveMark(_) => Ok(Vars::new()),
+            | Statement::MoveMark(_) => {}
             Statement::PathCall(id, exprs) | Statement::Split(id, exprs) => {
-                let args = ctx
-                    .protos
-                    .get(id)
-                    .ok_or(TurtleError::MissingDefinition(*id))?
-                    .clone()
-                    .args;
-                super::check_args(exprs, &args, e_map, ctx)
+                let proto = &ctx.protos[&*id];
+                let args = proto.args.clone();
+                add_res!(super::check_args(exprs, &args, e_map, ctx));
             }
-            Statement::Store(expr, var) => {
-                let var_ty = var.val_type(ctx)?;
-                if var_ty.0 == ValType::Any {
-                    let expr = expr.val_type(ctx)?;
-                    if expr.0 == ValType::Any {
-                        Ok(var_ty.1 & expr.1)
-                    } else {
-                        var.expect_type(expr.0, ctx)?;
-                        Ok(expr.1)
-                    }
-                } else {
-                    Ok(expr.expect_type(var_ty.0, ctx)?)
-                }
-            }
-            Statement::Calc { var, val, op } => {
-                let var_ty = var.val_type(ctx)?;
-                let types = op.types();
-                if var_ty.0 != ValType::Any {
-                    if !types.iter().any(|(_, t)| *t == var_ty.0) {
-                        return Err(TurtleError::TypeError(
-                            TypeError::BiOpWrongType(*op, var_ty.0),
-                            self.get_pos(),
-                        ));
-                    }
-                    Ok(val.expect_type(var_ty.0, ctx)?)
-                } else if types.len() == 1 {
-                    var.expect_type(types[0].0, ctx)?;
-                    Ok(val.expect_type(types[0].0, ctx)?)
-                } else {
-                    let expr = val.val_type(ctx)?;
-                    if expr.0 == ValType::Any {
-                        Ok(var_ty.1 & expr.1)
-                    } else {
-                        if !types.iter().any(|(_, t)| *t == expr.0) {
-                            return Err(TurtleError::TypeError(
-                                TypeError::BiOpWrongType(*op, expr.0),
-                                self.get_pos(),
-                            ));
+            Statement::Store(expr, var) => var_expr! {
+                var.val_type(ctx), expr.val_type(ctx) => var_res, expr_res {
+                    match (var_res.0, expr_res.0) {
+                        (ValType::Any, ValType::Any) => {
+                            vars &= var_res.1;
+                            vars &= expr_res.1;
                         }
-                        var.expect_type(expr.0, ctx)?;
-                        Ok(expr.1)
+                        (ValType::Any, expr_ty) => {
+                            errs.extend(var.expect_type(expr_ty, ctx).err());
+                            vars &= expr_res.1;
+                        }
+                        (var_ty, ValType::Any) => add_res!(expr.expect_type(var_ty, ctx)),
+                        (var_ty, expr_ty) => {
+                            vars &= var_res.1;
+                            vars &= expr_res.1;
+                            if var_ty != expr_ty {
+                                errs.push(e_map(TypeError::WrongType(expr_ty, var_ty)));
+                            }
+                        }
                     }
                 }
+            },
+            Statement::Calc { var, val, op } => {
+                let types = op.types();
+                if types.len() == 1 {
+                    add_res!(val.expect_type(types[0].0, ctx));
+                    errs.extend(var.expect_type(types[0].1, ctx).err());
+                } else {
+                    var_expr!(
+                        var.val_type(ctx), val.val_type(ctx) => var_res, expr_res {
+                            if expr_res.0 != ValType::Any {
+                                if let Some((_, vt)) = types.iter().find(|(t, _)| *t == expr_res.0) {
+                                    vars &= expr_res.1;
+                                    if var_res.0 == ValType::Any {
+                                        errs.extend(var.expect_type(*vt, ctx).err());
+                                    } else if var_res.0 != *vt {
+                                        errs.push(e_map(TypeError::BiOpWrongTypeForResult(*op, expr_res.0, var_res.0)));
+                                    }
+                                } else {
+                                    errs.push(e_map(TypeError::BiOpWrongType(*op, expr_res.0)));
+                                }
+                            } else if var_res.0 != ValType::Any {
+                                let rem: Vec<_> = types.iter().filter(|(_, out)| *out == var_res.0).copied().collect();
+                                match rem.len() {
+                                    0 => errs.push(e_map(TypeError::BiOpWrongResult(*op, var_res.0))),
+                                    1 => add_res!(val.expect_type(rem[0].0, ctx)),
+                                    _ => {
+                                        vars &= expr_res.1;
+                                    }
+                                }
+                            } else {
+                                vars &= expr_res.1;
+                                let first = types[0].1;
+                                if types.iter().all(|(_, out)| *out == first) {
+                                    errs.extend(var.expect_type(first, ctx).err());
+                                } else {
+                                    vars &= var_res.1;
+                                }
+                            }
+                        }
+                    );
+                }
             }
-            Statement::Print(expr) => Ok(expr.expect_type(ValType::String, ctx)?),
+            Statement::Print(expr) => add_res!(expr.expect_type(ValType::String, ctx)),
             Statement::IfBranch(expr, block)
             | Statement::WhileLoop(expr, block)
             | Statement::RepeatLoop(expr, block) => {
-                let cond = expr.expect_type(ValType::Boolean, ctx)?;
-                let block = block.semantic_check(ctx)?;
-                Ok(cond & block)
+                add_res!(expr.expect_type(ValType::Boolean, ctx));
+                add_res!(block.check_statements(ctx));
             }
             Statement::DoLoop(expr, block) => {
-                let count = expr.expect_type(ValType::Number, ctx)?;
-                let block = block.semantic_check(ctx)?;
-                Ok(count & block)
+                add_res!(expr.expect_type(ValType::Number, ctx));
+                add_res!(block.check_statements(ctx));
             }
             Statement::IfElseBranch(expr, if_block, else_block) => {
-                let cond = expr.expect_type(ValType::Boolean, ctx)?;
-                let ib = if_block.semantic_check(ctx)?;
-                let eb = else_block.semantic_check(ctx)?;
-                Ok(cond & ib & eb)
+                add_res!(expr.expect_type(ValType::Boolean, ctx));
+                add_res!(if_block.check_statements(ctx));
+                add_res!(else_block.check_statements(ctx));
             }
             Statement::CounterLoop {
                 counter,
@@ -107,17 +148,18 @@ impl Pos<Statement> {
                 step,
                 body,
             } => {
-                counter.expect_type(ValType::Number, ctx)?;
-                let f = from.expect_type(ValType::Number, ctx)?;
-                let t = to.expect_type(ValType::Number, ctx)?;
-                let s = step
-                    .as_mut()
-                    .map(|s| s.expect_type(ValType::Number, ctx))
-                    .unwrap_or(Ok(Vars::new()))?;
-                let b = body.semantic_check(ctx)?;
-                Ok(f & t & s & b)
+                if let Err(why) = counter.expect_type(ValType::Number, ctx) {
+                    errs.push(why);
+                }
+                add_res!(from.expect_type(ValType::Number, ctx));
+                add_res!(to.expect_type(ValType::Number, ctx));
+                if let Some(step) = step {
+                    add_res!(step.expect_type(ValType::Number, ctx));
+                }
+                add_res!(body.check_statements(ctx));
             }
         }
+        errs.otherwise(vars)
     }
 
     pub(crate) fn collect_variables(&self) -> Vec<VariableKind> {
@@ -144,23 +186,21 @@ impl Pos<Statement> {
             }
             Statement::Store(val, var) | Statement::Calc { var, val, .. } => {
                 let mut res = val.collect_variables();
-                res.push(var.kind);
+                res.push(***var);
                 res
             }
             Statement::IfBranch(expr, block)
             | Statement::DoLoop(expr, block)
             | Statement::WhileLoop(expr, block)
-            | Statement::RepeatLoop(expr, block) => {
-                let mut res = block.collect_variables();
-                res.append(&mut expr.collect_variables());
-                res
-            }
-            Statement::IfElseBranch(expr, if_block, else_block) => {
-                let mut res = if_block.collect_variables();
-                res.append(&mut else_block.collect_variables());
-                res.append(&mut expr.collect_variables());
-                res
-            }
+            | Statement::RepeatLoop(expr, block) => block
+                .collect_variables()
+                .chain(expr.collect_variables())
+                .collect(),
+            Statement::IfElseBranch(expr, if_block, else_block) => if_block
+                .collect_variables()
+                .chain(else_block.collect_variables())
+                .chain(expr.collect_variables())
+                .collect(),
             Statement::CounterLoop {
                 counter,
                 from,
@@ -168,16 +208,17 @@ impl Pos<Statement> {
                 step,
                 body,
                 ..
-            } => {
-                let mut res = body.collect_variables();
-                res.push(counter.kind);
-                res.append(&mut from.collect_variables());
-                res.append(&mut to.collect_variables());
-                if let Some(step) = step {
-                    res.append(&mut step.collect_variables());
-                };
-                res
-            }
+            } => body
+                .collect_variables()
+                .chain(Some(***counter))
+                .chain(from.collect_variables())
+                .chain(to.collect_variables())
+                .chain(
+                    step.as_ref()
+                        .map(Expr::collect_variables)
+                        .unwrap_or_default(),
+                )
+                .collect(),
         }
     }
 }

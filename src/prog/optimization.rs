@@ -1,11 +1,11 @@
 use crate::{
-    pos::{Pos, Positionable},
+    pos::{Positionable, Spanned},
     tokens::{Block, Expr, ExprKind, Statement, Value},
 };
 
 impl Expr {
     pub fn is_const(&self) -> Option<Value> {
-        if let ExprKind::Const(val) = &self.kind {
+        if let ExprKind::Const(val) = &***self {
             Some(val.clone())
         } else {
             None
@@ -14,8 +14,8 @@ impl Expr {
 
     pub fn const_fold(&mut self) {
         let mut kind = ExprKind::Const(Value::Boolean(false));
-        std::mem::swap(&mut kind, &mut self.kind);
-        *self = kind.const_fold().at(self.start, self.end);
+        std::mem::swap(&mut kind, &mut **self);
+        *self = kind.const_fold().at(self.get_span());
     }
 }
 
@@ -50,7 +50,7 @@ impl ExprKind {
             }
             ExprKind::Bracket(mut expr) => {
                 expr.const_fold();
-                expr.kind
+                expr.0.into_inner()
             }
             ExprKind::Convert(mut expr, to) => {
                 expr.const_fold();
@@ -72,8 +72,8 @@ impl ExprKind {
     }
 }
 
-impl Pos<Statement> {
-    pub fn const_fold(mut self) -> Vec<Pos<Statement>> {
+impl Spanned<Statement> {
+    pub fn const_fold(mut self) -> Vec<Spanned<Statement>> {
         match &mut *self {
             Statement::MoveDist { dist, .. } => dist.const_fold(),
             Statement::Turn { by, .. } => by.const_fold(),
@@ -115,26 +115,26 @@ impl Pos<Statement> {
         let to_bool = |v: Value| v.bool();
         let to_num = |v: Value| v.num();
 
-        let pos = self.get_pos();
+        let span = self.get_span();
         match self.into_inner() {
             Statement::IfBranch(expr, block) => match expr.is_const().map(to_bool) {
                 Some(true) => block.statements,
                 Some(false) => Vec::new(),
-                None => vec![Statement::IfBranch(expr, block).attach_pos(pos)],
+                None => vec![Statement::IfBranch(expr, block).with_span(span)],
             },
             Statement::IfElseBranch(expr, if_block, else_block) => {
                 match expr.is_const().map(to_bool) {
                     Some(true) => if_block.statements,
                     Some(false) => else_block.statements,
                     None => {
-                        vec![Statement::IfElseBranch(expr, if_block, else_block).attach_pos(pos)]
+                        vec![Statement::IfElseBranch(expr, if_block, else_block).with_span(span)]
                     }
                 }
             }
             Statement::DoLoop(expr, block) => match expr.is_const().map(to_num) {
                 Some(c) if c < 1.0 => Vec::new(),
                 Some(c) if c < 2.0 => block.statements,
-                _ => vec![Statement::DoLoop(expr, block).attach_pos(pos)],
+                _ => vec![Statement::DoLoop(expr, block).with_span(span)],
             },
             Statement::CounterLoop {
                 counter,
@@ -160,24 +160,24 @@ impl Pos<Statement> {
                         step,
                         body,
                     }
-                    .attach_pos(pos),
+                    .with_span(span),
                 ]
             }
             Statement::WhileLoop(expr, block) => {
                 if expr.is_const().is_some_and(|v| !v.bool()) {
                     Vec::new()
                 } else {
-                    vec![Statement::WhileLoop(expr, block).attach_pos(pos)]
+                    vec![Statement::WhileLoop(expr, block).with_span(span)]
                 }
             }
             Statement::RepeatLoop(expr, block) => {
                 if expr.is_const().is_some_and(|v| !v.bool()) {
                     block.statements
                 } else {
-                    vec![Statement::RepeatLoop(expr, block).attach_pos(pos)]
+                    vec![Statement::RepeatLoop(expr, block).with_span(span)]
                 }
             }
-            stmt => vec![stmt.attach_pos(pos)],
+            stmt => vec![stmt.with_span(span)],
         }
     }
 }

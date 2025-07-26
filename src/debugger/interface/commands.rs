@@ -144,7 +144,10 @@ impl From<DebugErr> for StopCause {
 }
 
 impl DbgCommand {
-    pub fn exec<'p, W: Window + 'p>(self, run: &mut Debugger<'p, W>) -> (CmdResult, Option<ProgEnd>) {
+    pub fn exec<'p, W: Window + 'p>(
+        self,
+        run: &mut Debugger<'p, W>,
+    ) -> (CmdResult, Option<ProgEnd>) {
         let (output, stop) = match self.call_debugger(run) {
             Ok(Some(out)) => (Some(out), None),
             Ok(None) => (None, None),
@@ -156,12 +159,15 @@ impl DbgCommand {
             Some(StopCause::Err(err)) => (Some(err), None),
             Some(StopCause::ProgEnd(end)) => (None, Some(end)),
         };
-        (CmdResult {
-            output,
-            error,
-            stmt_count,
-            run_events,
-        }, stop)
+        (
+            CmdResult {
+                output,
+                error,
+                stmt_count,
+                run_events,
+            },
+            stop,
+        )
     }
 }
 

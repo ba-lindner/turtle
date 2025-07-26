@@ -135,7 +135,7 @@ pub async fn check_prog(
     if let Some(err) = state.lock().await.get_prog(&id, auth)?.check()? {
         let msg = err.to_string();
         let spans = match err {
-            turtle::TurtleError::LexErrors(items) => {
+            turtle::ProgError::LexErrors(items) => {
                 return Ok(Json(Value::Array(
                     items
                         .into_iter()
@@ -143,14 +143,14 @@ pub async fn check_prog(
                         .collect(),
                 )));
             }
-            turtle::TurtleError::ParseError(pos) => Spans::Len(pos.get_pos(), 1),
-            turtle::TurtleError::MultipleMains(first, second) => Spans::Multi(vec![
+            turtle::ProgError::ParseError(pos) => Spans::Len(pos.get_pos(), 1),
+            turtle::ProgError::MultipleMains(first, second) => Spans::Multi(vec![
                 ("first main".to_string(), Spans::Len(first, 5)),
                 ("second main".to_string(), Spans::Len(second, 5)),
             ]),
-            turtle::TurtleError::TypeError(_, pos) => Spans::Len(pos, 1),
-            turtle::TurtleError::TypeErrorSpan(_, start, end) => Spans::Pos(start, end),
-            turtle::TurtleError::MultipleEventHandler(_, first, second) => Spans::Multi(vec![
+            turtle::ProgError::TypeError(_, pos) => Spans::Len(pos, 1),
+            turtle::ProgError::TypeErrorSpan(_, start, end) => Spans::Pos(start, end),
+            turtle::ProgError::MultipleEventHandler(_, first, second) => Spans::Multi(vec![
                 ("first event handler".to_string(), Spans::Len(first, 5)),
                 ("second event handler".to_string(), Spans::Len(second, 5)),
             ]),

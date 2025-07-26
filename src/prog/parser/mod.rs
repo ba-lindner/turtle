@@ -1,9 +1,10 @@
 use std::fmt::Display;
 
 use crate::{
-    FilePos, Identified, Pos, Positionable, SymbolTable,
+    Identified, Positionable, Spanned, SymbolTable,
     features::{Feature, FeatureConf, FeatureState},
-    prog::{CalcDef, PathDef, lexer::LexToken},
+    pos::Span,
+    prog::{CalcDef, Otherwise, PathDef, lexer::LexToken},
     tokens::*,
 };
 
@@ -12,21 +13,25 @@ mod statements;
 mod test;
 
 /// Result of parsing a specific node
-type PRes<T> = Result<T, Pos<ParseError>>;
+type PRes<T> = Result<T, Vec<Spanned<ParseError>>>;
 
 /// Turtle Parser
-pub struct Parser<'s, 'f> {
-    ltokens: Vec<Pos<LexToken>>,
+pub struct Parser<'p> {
+    ltokens: Vec<Spanned<LexToken>>,
     pos: usize,
-    symbols: &'s mut SymbolTable,
-    features: &'f mut FeatureConf,
+    symbols: &'p mut SymbolTable,
+    features: &'p mut FeatureConf,
 }
 
-impl<'s, 'f> Parser<'s, 'f> {
+impl<'p> Parser<'p> {
+    // ######################
+    //     core functions
+    // ######################
+
     pub fn new(
-        symbols: &'s mut SymbolTable,
-        ltokens: Vec<Pos<LexToken>>,
-        features: &'f mut FeatureConf,
+        symbols: &'p mut SymbolTable,
+        features: &'p mut FeatureConf,
+        ltokens: Vec<Spanned<LexToken>>,
     ) -> Self {
         Self {
             ltokens,
@@ -36,47 +41,85 @@ impl<'s, 'f> Parser<'s, 'f> {
         }
     }
 
+    pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
+        Some(match self.next_token().ok()? {
+            LexToken::Keyword(Keyword::Path) => self.parse_path(),
+            LexToken::Keyword(Keyword::Calculation) => self.parse_calc(),
+            LexToken::Keyword(Keyword::Begin) => self.parse_main(),
+            LexToken::Keyword(Keyword::Event) => self.parse_event(),
+            LexToken::Keyword(Keyword::Param) => self.parse_param(),
+            _ => Err(self.unexpected_last_token(TokenExpectation::BlockStart)),
+        })
+    }
+
+    pub fn collect_items(&mut self) -> PRes<Vec<ParseToken>> {
+        let mut items = Vec::new();
+        let mut errs = Vec::new();
+        for item in self {
+            match item {
+                Ok(item) => items.push(item),
+                Err(mut why) => errs.append(&mut why),
+            }
+        }
+        errs.otherwise(items)
+    }
+
+    // ######################
+    //     util functions
+    // ######################
+
     pub fn reset(&mut self) {
         self.pos = 0;
     }
 
-    pub fn parse_next(&mut self) -> Option<PRes<ParseToken>> {
-        self.eof()?;
-        let begin = self.curr_pos();
-        Some(if self.match_keyword(Keyword::Path) {
-            self.parse_path(begin)
-        } else if self.match_keyword(Keyword::Calculation) {
-            self.parse_calc(begin)
-        } else if self.match_keyword(Keyword::Begin) {
-            self.parse_main(begin)
-        } else if self.match_keyword(Keyword::Event) {
-            self.parse_event(begin)
-        } else if self.match_keyword(Keyword::Param) {
-            self.parse_param()
+    pub fn eof_err(&self) -> Spanned<ParseError> {
+        let span = self.ltokens.last().map(Spanned::get_span);
+        ParseError::UnexpectedEnd.with_span(span.unwrap_or_default())
+    }
+
+    fn eof(&self) -> PRes<()> {
+        if self.pos < self.ltokens.len() {
+            Ok(())
         } else {
-            Err(self.unexpected_token(TokenExpectation::BlockStart))
-        })
+            Err(self.eof_err())
+        }
     }
 
-    fn lookahead(&self) -> Option<LexToken> {
+    fn lookahead(&self) -> PRes<LexToken> {
         self.eof()?;
-        Some((*self.ltokens[self.pos]).clone())
+        Ok((*self.ltokens[self.pos]).clone())
     }
 
-    fn next_token(&mut self) -> Option<LexToken> {
+    fn next_token(&mut self) -> PRes<LexToken> {
         self.eof()?;
         self.pos += 1;
-        Some((*self.ltokens[self.pos - 1]).clone())
+        Ok((*self.ltokens[self.pos - 1]).clone())
     }
 
-    fn next_token_err(&mut self) -> PRes<LexToken> {
-        self.next_token()
-            .ok_or(ParseError::UnexpectedEnd.attach_pos(self.curr_pos()))
+    fn curr_span(&self) -> Span {
+        self.ltokens[self.pos.clamp(0, self.ltokens.len() - 1)].get_span()
+    }
+
+    fn last_span(&self) -> Span {
+        self.ltokens[(self.pos - 1).clamp(0, self.ltokens.len() - 1)].get_span()
+    }
+
+    fn unexpected_token(&mut self, expected: TokenExpectation) -> Spanned<ParseError> {
+        let pos = self.curr_span();
+        match self.next_token() {
+            Ok(t) => ParseError::UnexpectedToken(t, expected).with_span(pos),
+            Err(eof) => eof,
+        }
+    }
+
+    fn unexpected_last_token(&mut self, expected: TokenExpectation) -> Spanned<ParseError> {
+        self.pos -= 1;
+        self.unexpected_token(expected)
     }
 
     fn match_keyword(&mut self, kw: Keyword) -> bool {
         match self.lookahead() {
-            Some(LexToken::Keyword(found)) if found == kw => {
+            Ok(LexToken::Keyword(found)) if found == kw => {
                 self.pos += 1;
                 true
             }
@@ -93,7 +136,7 @@ impl<'s, 'f> Parser<'s, 'f> {
     }
 
     fn match_identifier(&mut self) -> PRes<usize> {
-        let Some(LexToken::Identifier(name)) = self.lookahead() else {
+        let Ok(LexToken::Identifier(name)) = self.lookahead() else {
             return Err(self.unexpected_token(TokenExpectation::AnyIdentifier));
         };
         self.pos += 1;
@@ -102,7 +145,7 @@ impl<'s, 'f> Parser<'s, 'f> {
 
     fn match_symbol(&mut self, c: char) -> bool {
         match self.lookahead() {
-            Some(LexToken::Symbol(found)) if found == c => {
+            Ok(LexToken::Symbol(found)) if found == c => {
                 self.pos += 1;
                 true
             }
@@ -119,14 +162,14 @@ impl<'s, 'f> Parser<'s, 'f> {
     }
 
     fn set_ident_type(&mut self, ident: usize, kind: Identified) -> PRes<()> {
-        let pos = self.curr_pos();
+        let pos = self.curr_span();
         let old_kind = self
             .symbols
             .get_index_mut(ident)
             .expect("should be set by parser")
             .1;
         if *old_kind != Identified::Unknown && *old_kind != kind {
-            Err(ParseError::ConflictingIdentifiers(ident, *old_kind, kind).attach_pos(pos))
+            Err(ParseError::ConflictingIdentifiers(ident, *old_kind, kind).with_span(pos))
         } else {
             *old_kind = kind;
             Ok(())
@@ -136,35 +179,30 @@ impl<'s, 'f> Parser<'s, 'f> {
     fn expect_feature(&mut self, feature: Feature) -> PRes<()> {
         self.features
             .expect(feature)
-            .map_err(|f| ParseError::MissingFeature(f).attach_pos(self.curr_pos()))
+            .map_err(|f| ParseError::MissingFeature(f).with_span(self.curr_span()))
     }
 
-    fn parse_type(&mut self) -> PRes<ValType> {
-        self.expect_feature(Feature::Types)?;
-        Ok(match self.next_token_err()? {
-            LexToken::Keyword(Keyword::Num) => ValType::Number,
-            LexToken::Keyword(Keyword::String) => ValType::String,
-            LexToken::Keyword(Keyword::Bool) => ValType::Boolean,
-            _ => return Err(self.unexpected_last_token(TokenExpectation::ValType)),
-        })
-    }
+    // ######################
+    //     main functions
+    // ######################
 
     fn parse_param(&mut self) -> PRes<ParseToken> {
         self.expect_feature(Feature::Parameters)?;
-        let Some(LexToken::GlobalVar(id)) = self.next_token() else {
+        let begin = self.last_span();
+        let Ok(LexToken::GlobalVar(id)) = self.next_token() else {
             return Err(self.unexpected_last_token(TokenExpectation::GlobalVar));
         };
         self.expect_symbol('=')?;
         let val = self.parse_expr()?;
         let Some(val) = val.is_const() else {
-            return Err(ParseError::ParamNotConst(id).attach_pos(val.start));
+            return Err(ParseError::ParamNotConst(id).with_span(val.0.get_span()));
         };
-        Ok(ParseToken::Param(id, val))
+        Ok(ParseToken::Param(id, val, begin))
     }
 
-    fn parse_event(&mut self, begin: FilePos) -> PRes<ParseToken> {
+    fn parse_event(&mut self) -> PRes<ParseToken> {
         self.expect_feature(Feature::Events)?;
-        let kind = match self.next_token_err()? {
+        let kind = match self.next_token()? {
             LexToken::Keyword(Keyword::Mouse) => EventKind::Mouse,
             LexToken::Keyword(Keyword::Key) => EventKind::Key,
             _ => return Err(self.unexpected_last_token(TokenExpectation::EventKind)),
@@ -175,28 +213,28 @@ impl<'s, 'f> Parser<'s, 'f> {
             PathDef {
                 name: 0,
                 args,
-                body: self.parse_statements(begin, Keyword::EndEvent)?,
+                body: self.parse_statements(Keyword::EndEvent)?,
             },
         ))
     }
 
-    fn parse_path(&mut self, begin: FilePos) -> PRes<ParseToken> {
+    fn parse_path(&mut self) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         let args = self.parse_proto_args(true)?;
         self.set_ident_type(name, Identified::Path)?;
         Ok(ParseToken::PathDef(PathDef {
             name,
             args,
-            body: self.parse_statements(begin, Keyword::Endpath)?,
+            body: self.parse_statements(Keyword::Endpath)?,
         }))
     }
 
-    fn parse_calc(&mut self, begin: FilePos) -> PRes<ParseToken> {
+    fn parse_calc(&mut self) -> PRes<ParseToken> {
         let name = self.match_identifier()?;
         let args = self.parse_proto_args(false)?;
         let ret_ty = self.parse_type_hint()?;
         self.set_ident_type(name, Identified::Calc)?;
-        let stmts = self.parse_statements(begin, Keyword::Returns)?;
+        let stmts = self.parse_statements(Keyword::Returns)?;
         let ret = self.parse_expr()?;
         self.expect_keyword(Keyword::Endcalc)?;
         Ok(ParseToken::CalcDef(CalcDef {
@@ -206,6 +244,24 @@ impl<'s, 'f> Parser<'s, 'f> {
             body: stmts,
             ret,
         }))
+    }
+
+    fn parse_main(&mut self) -> PRes<ParseToken> {
+        Ok(ParseToken::StartBlock(self.parse_statements(Keyword::End)?))
+    }
+
+    // #######################
+    //     parse functions
+    // #######################
+
+    fn parse_type(&mut self) -> PRes<ValType> {
+        self.expect_feature(Feature::Types)?;
+        Ok(match self.next_token()? {
+            LexToken::Keyword(Keyword::Num) => ValType::Number,
+            LexToken::Keyword(Keyword::String) => ValType::String,
+            LexToken::Keyword(Keyword::Bool) => ValType::Boolean,
+            _ => return Err(self.unexpected_last_token(TokenExpectation::ValType)),
+        })
     }
 
     fn parse_proto_args(&mut self, optional: bool) -> PRes<Vec<(usize, ValType)>> {
@@ -246,36 +302,21 @@ impl<'s, 'f> Parser<'s, 'f> {
         })
     }
 
-    fn parse_main(&mut self, begin: FilePos) -> PRes<ParseToken> {
-        Ok(ParseToken::StartBlock(
-            self.parse_statements(begin, Keyword::End)?,
-        ))
-    }
-
     pub fn parse_variable(&mut self) -> PRes<Variable> {
-        let pos = self.curr_pos();
-        match self.next_token_err()? {
+        let span = self.curr_span();
+        match self.next_token()? {
             LexToken::GlobalVar(id) => {
                 self.set_ident_type(id, Identified::GlobalVar)?;
-                Ok(Variable {
-                    pos,
-                    kind: VariableKind::Global(id, ValType::Any),
-                })
+                Ok(VariableKind::Global(id, ValType::Any).at(span))
             }
-            LexToken::PredefVar(pdv) => Ok(Variable {
-                pos,
-                kind: VariableKind::GlobalPreDef(pdv),
-            }),
+            LexToken::PredefVar(pdv) => Ok(VariableKind::GlobalPreDef(pdv).at(span)),
             LexToken::Identifier(id) => {
                 self.set_ident_type(id, Identified::LocalVar)?;
-                Ok(Variable {
-                    pos,
-                    kind: VariableKind::Local(id, ValType::Any),
-                })
+                Ok(VariableKind::Local(id, ValType::Any).at(span))
             }
             t => Err(
                 ParseError::UnexpectedToken(t, TokenExpectation::AnyIdentifier)
-                    .attach_pos(self.curr_pos()),
+                    .with_span(self.curr_span()),
             ),
         }
     }
@@ -334,11 +375,10 @@ impl<'s, 'f> Parser<'s, 'f> {
                         {
                             let lhs = nodes[i].1.take().unwrap();
                             let rhs = nodes[i + 1].1.take().unwrap();
-                            nodes[i + 1].1 = Some(Expr {
-                                start: lhs.start,
-                                end: rhs.end,
-                                kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
-                            });
+                            let span = lhs.get_span().to(rhs.get_span());
+                            nodes[i + 1].1 = Some(
+                                ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)).at(span),
+                            );
                             nodes[i + 1].0 = nodes[i].0;
                             nodes[i].0 = NodeKind::Empty;
                         }
@@ -351,11 +391,10 @@ impl<'s, 'f> Parser<'s, 'f> {
                         {
                             let lhs = nodes[i - 1].1.take().unwrap();
                             let rhs = nodes[i].1.take().unwrap();
-                            nodes[i - 1].1 = Some(Expr {
-                                start: lhs.start,
-                                end: rhs.end,
-                                kind: ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)),
-                            });
+                            let span = lhs.get_span().to(rhs.get_span());
+                            nodes[i - 1].1 = Some(
+                                ExprKind::BiOperation(Box::new(lhs), op, Box::new(rhs)).at(span),
+                            );
                             nodes[i].0 = NodeKind::Empty;
                         }
                     }
@@ -369,76 +408,68 @@ impl<'s, 'f> Parser<'s, 'f> {
     }
 
     fn parse_operand(&mut self) -> PRes<Expr> {
-        let start = self.curr_pos();
-        Ok(match self.next_token_err()? {
+        let start = self.curr_span();
+        Ok(match self.next_token()? {
             LexToken::Symbol('(') => {
                 let expr = self.parse_expr()?;
                 self.expect_symbol(')')?;
-                ExprKind::Bracket(Box::new(expr)).at(start, self.last_pos())
+                ExprKind::Bracket(Box::new(expr))
             }
             LexToken::Symbol('|') => {
                 let expr = self.parse_expr()?;
                 self.expect_symbol('|')?;
-                ExprKind::Absolute(Box::new(expr)).at(start, self.last_pos())
+                ExprKind::Absolute(Box::new(expr))
             }
             LexToken::Symbol('-') => {
                 ExprKind::UnOperation(UnOperator::Negate, Box::new(self.parse_operand()?))
-                    .at(start, self.last_pos())
             }
             LexToken::Keyword(Keyword::Not) => {
                 ExprKind::UnOperation(UnOperator::Not, Box::new(self.parse_operand()?))
-                    .at(start, self.last_pos())
             }
-            LexToken::IntLiteral(i) => ExprKind::Const(Value::Number(i as f64)).at(start, start),
-            LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)).at(start, start),
-            LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)).at(start, start),
-            LexToken::Keyword(Keyword::True) => {
-                ExprKind::Const(Value::Boolean(true)).at(start, start)
-            }
-            LexToken::Keyword(Keyword::False) => {
-                ExprKind::Const(Value::Boolean(false)).at(start, start)
-            }
+            LexToken::IntLiteral(i) => ExprKind::Const(Value::Number(i as f64)),
+            LexToken::FloatLiteral(f) => ExprKind::Const(Value::Number(f)),
+            LexToken::StringLiteral(s) => ExprKind::Const(Value::String(s)),
+            LexToken::Keyword(Keyword::True) => ExprKind::Const(Value::Boolean(true)),
+            LexToken::Keyword(Keyword::False) => ExprKind::Const(Value::Boolean(false)),
             LexToken::GlobalVar(v) => {
-                ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start)).at(start, start)
+                ExprKind::Variable(VariableKind::Global(v, ValType::Any).at(start))
             }
             LexToken::PredefVar(pdv) => {
-                ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start)).at(start, start)
+                ExprKind::Variable(VariableKind::GlobalPreDef(pdv).at(start))
             }
             LexToken::Keyword(kw) => {
                 if let Some(pdf) = PredefFunc::parse(kw) {
                     let args = self.parse_args(Some(pdf.args().len()))?;
-                    ExprKind::FuncCall(pdf, args).at(start, self.last_pos())
+                    ExprKind::FuncCall(pdf, args)
                 } else if let Some(conv) = ValType::parse(kw) {
                     self.expect_feature(Feature::Types)?;
                     self.expect_symbol('(')?;
                     let expr = self.parse_expr()?;
                     self.expect_symbol(')')?;
-                    ExprKind::Convert(Box::new(expr), conv).at(start, self.last_pos())
+                    ExprKind::Convert(Box::new(expr), conv)
                 } else {
                     return Err(self.unexpected_last_token(TokenExpectation::PredefFunc));
                 }
             }
             LexToken::Identifier(id) => {
-                if self.lookahead() == Some(LexToken::Symbol('(')) {
+                if self.lookahead() == Ok(LexToken::Symbol('(')) {
                     let args = self.parse_args(None)?;
                     self.set_ident_type(id, Identified::Calc)?;
-                    ExprKind::CalcCall(id, args).at(start, self.last_pos())
+                    ExprKind::CalcCall(id, args)
                 } else {
                     self.set_ident_type(id, Identified::LocalVar)?;
                     ExprKind::Variable(VariableKind::Local(id, ValType::Any).at(start))
-                        .at(start, start)
                 }
             }
             t => {
-                return Err(
-                    ParseError::UnexpectedToken(t, TokenExpectation::Expr).attach_pos(start)
-                );
+                return Err(ParseError::UnexpectedToken(t, TokenExpectation::Expr).with_span(start));
             }
-        })
+        }
+        .at(start.to(self.last_span())))
     }
 
     fn parse_args(&mut self, count: Option<usize>) -> PRes<Vec<Expr>> {
-        let pos = self.curr_pos();
+        let pos = self.curr_span();
         let mut args = Vec::new();
         self.expect_symbol('(')?;
         while !self.match_symbol(')') {
@@ -451,13 +482,13 @@ impl<'s, 'f> Parser<'s, 'f> {
         if let Some(c) = count
             && c != args.len()
         {
-            return Err(ParseError::ArgCount(args.len(), c).attach_pos(pos));
+            return Err(ParseError::ArgCount(args.len(), c).with_span(pos));
         }
         Ok(args)
     }
 
     fn match_operator(&mut self) -> Option<BiOperator> {
-        Some(match self.next_token()? {
+        Some(match self.next_token().ok()? {
             LexToken::Symbol('+') => BiOperator::Add,
             LexToken::Symbol('-') => BiOperator::Sub,
             LexToken::Symbol('*') => BiOperator::Mul,
@@ -488,34 +519,9 @@ impl<'s, 'f> Parser<'s, 'f> {
             }
         })
     }
-
-    fn eof(&self) -> Option<()> {
-        (self.pos < self.ltokens.len()).then_some(())
-    }
-
-    fn curr_pos(&self) -> FilePos {
-        self.ltokens[self.pos.clamp(0, self.ltokens.len() - 1)].get_pos()
-    }
-
-    fn last_pos(&self) -> FilePos {
-        self.ltokens[(self.pos - 1).clamp(0, self.ltokens.len() - 1)].get_pos()
-    }
-
-    fn unexpected_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {
-        let pos = self.curr_pos();
-        match self.next_token_err() {
-            Ok(t) => ParseError::UnexpectedToken(t, expected).attach_pos(pos),
-            Err(eof) => eof,
-        }
-    }
-
-    fn unexpected_last_token(&mut self, expected: TokenExpectation) -> Pos<ParseError> {
-        self.pos -= 1;
-        self.unexpected_token(expected)
-    }
 }
 
-impl Iterator for Parser<'_, '_> {
+impl Iterator for Parser<'_> {
     type Item = PRes<ParseToken>;
 
     fn next(&mut self) -> Option<Self::Item> {

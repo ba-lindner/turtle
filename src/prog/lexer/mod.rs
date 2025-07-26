@@ -6,33 +6,34 @@ use std::{
 use clap::ValueEnum;
 
 use crate::{
-    FilePos, Identified, Pos,
+    FilePos, Identified, Spanned,
     features::{Feature, FeatureConf},
+    prog::Otherwise,
     tokens::{Keyword, PredefVar},
 };
-use crate::{Positionable, SymbolTable, TurtleError};
+use crate::{Positionable, SymbolTable};
 
 #[cfg(test)]
 mod test;
 
-pub type LResult = Pos<Result<LexToken, LexError>>;
+pub type LResult = Result<Spanned<LexToken>, Spanned<LexError>>;
 
 #[derive(PartialEq, Debug)]
-pub struct Lexer<'s, 'f> {
+pub struct Lexer<'p> {
     chars: Vec<char>,
     offset: usize,
     pub line: usize,
     column: usize,
     last_col: usize,
     start: bool,
-    symbols: &'s mut SymbolTable,
-    features: &'f mut FeatureConf,
+    symbols: &'p mut SymbolTable,
+    features: &'p mut FeatureConf,
 }
 
-impl<'s, 'f> Lexer<'s, 'f> {
+impl<'p> Lexer<'p> {
     pub fn new(
-        symbols: &'s mut SymbolTable,
-        features: &'f mut FeatureConf,
+        symbols: &'p mut SymbolTable,
+        features: &'p mut FeatureConf,
         iter: impl Iterator<Item = char>,
     ) -> Self {
         Self {
@@ -47,27 +48,22 @@ impl<'s, 'f> Lexer<'s, 'f> {
         }
     }
 
-    pub fn collect_tokens(&mut self) -> Result<Vec<Pos<LexToken>>, TurtleError> {
-        let mut errs = Vec::new();
+    pub fn collect_tokens(&mut self) -> Result<Vec<Spanned<LexToken>>, Vec<Spanned<LexError>>> {
         let mut res = Vec::new();
+        let mut errs = Vec::new();
         for lres in self {
-            let pos = lres.get_pos();
-            match lres.into_inner() {
-                Ok(token) => res.push(token.attach_pos(pos)),
-                Err(why) => errs.push(why.attach_pos(pos)),
+            match lres {
+                Ok(token) => res.push(token),
+                Err(err) => errs.push(err),
             }
         }
-        if !errs.is_empty() {
-            Err(TurtleError::LexErrors(errs))
-        } else {
-            Ok(res)
-        }
+        errs.otherwise(res)
     }
 
     pub fn next_token(&mut self) -> Option<LResult> {
         self.skip_comment();
         self.start = false;
-        let (line, column) = (self.line, self.column);
+        let start = FilePos::new(self.line, self.column);
         let r = match self.next_char()? {
             '@' => self.match_glob_var(),
             '.' => {
@@ -79,7 +75,8 @@ impl<'s, 'f> Lexer<'s, 'f> {
             c if c.is_alphabetic() || c == '_' => self.match_identifier(),
             c => Ok(LexToken::Symbol(c)),
         };
-        Some(r.attach_pos(FilePos::new(line, column)))
+        let span = start.to(self.last_pos());
+        Some(r.map(|t| t.with_span(span)).map_err(|e| e.with_span(span)))
     }
 
     fn match_num_literal(&mut self, c: char) -> Result<LexToken, LexError> {
@@ -219,6 +216,17 @@ impl<'s, 'f> Lexer<'s, 'f> {
         Some(c)
     }
 
+    fn last_pos(&self) -> FilePos {
+        FilePos::new(
+            self.line,
+            if self.column == 1 {
+                self.last_col
+            } else {
+                self.column
+            },
+        )
+    }
+
     fn lookahead(&self) -> Option<char> {
         self.chars.get(self.offset).cloned()
     }
@@ -267,7 +275,7 @@ impl<'s, 'f> Lexer<'s, 'f> {
     }
 }
 
-impl Iterator for Lexer<'_, '_> {
+impl Iterator for Lexer<'_> {
     type Item = LResult;
 
     fn next(&mut self) -> Option<Self::Item> {

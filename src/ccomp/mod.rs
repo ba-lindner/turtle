@@ -293,7 +293,7 @@ impl CComp {
     /// expressions with return type [`Boolean`](crate::tokens::ValType::Boolean),
     /// this function is also responsible for compiling conditions.
     fn comp_expr(&self, ctx: &mut Context, expr: &Expr) -> String {
-        match &expr.kind {
+        match &***expr {
             ExprKind::Const(val) => format!("{val}"),
             ExprKind::Variable(var) => self.comp_var(ctx, var, VarAct::Read),
             ExprKind::BiOperation(lhs, op, rhs) => {
@@ -348,7 +348,7 @@ impl CComp {
     /// by [`VarAct::Init`]), `double <name>` might be returned
     /// to declare the variable.
     fn comp_var(&self, ctx: &mut Context, var: &Variable, act: VarAct) -> String {
-        match &var.kind {
+        match &***var {
             VariableKind::Local(id, _) => {
                 let mut res = self.get_ident(*id);
                 if !ctx.has_var(*id) {

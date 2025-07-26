@@ -61,7 +61,7 @@ impl Statement {
 
 impl Expr {
     pub fn side_effects(&self, prog: &TProgram, rec: &mut Vec<usize>) -> bool {
-        match &self.kind {
+        match &***self {
             ExprKind::Const(_) | ExprKind::Variable(_) => false,
             ExprKind::BiOperation(lhs, _, rhs) => {
                 lhs.side_effects(prog, rec) || rhs.side_effects(prog, rec)
@@ -86,6 +86,6 @@ impl Expr {
 
 impl Variable {
     pub fn side_effects(&self) -> bool {
-        matches!(self.kind, VariableKind::Local(_, _))
+        matches!(***self, VariableKind::Local(_, _))
     }
 }

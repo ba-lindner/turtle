@@ -1,5 +1,6 @@
 use crate::{
-    TurtleError,
+    pos::{Positionable, Spanned},
+    prog::Otherwise,
     tokens::{Expr, ExprKind, ValType, VariableKind},
 };
 
@@ -10,179 +11,227 @@ impl Expr {
         &mut self,
         ty: ValType,
         ctx: &mut CheckContext,
-    ) -> Result<Vars, TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
-        match &mut self.kind {
-            ExprKind::Const(value) => {
-                value.val_type().assert(ty).map_err(e_map)?;
-                Ok(Vars::new())
-            }
-            ExprKind::Variable(var) => {
-                var.expect_type(ty, ctx)?;
-                Ok(Vars::new())
-            }
+    ) -> Result<Vars, Vec<Spanned<TypeError>>> {
+        let span = self.get_span();
+        let e_map = |e: TypeError| e.with_span(span);
+        let mut vars = Vars::new();
+        let mut errs = Vec::new();
+        macro_rules! add_res {
+            ($res:expr) => {
+                match $res {
+                    Ok(v) => vars &= v,
+                    Err(mut e) => errs.append(&mut e),
+                }
+            };
+        }
+        match &mut ***self {
+            ExprKind::Const(value) => errs.extend(value.val_type().assert(ty).err().map(e_map)),
+            ExprKind::Variable(var) => errs.extend(var.expect_type(ty, ctx).err()),
             ExprKind::BiOperation(lhs, op, rhs) => {
-                let poss_types: Vec<_> = op
-                    .types()
-                    .into_iter()
+                let types = op.types();
+                let poss_types: Vec<_> = types
+                    .iter()
+                    .cloned()
                     .filter_map(|(inp, out)| (out == ty).then_some(inp))
                     .collect();
-                match poss_types.len() {
-                    0 => Err(e_map(TypeError::BiOpWrongResult(*op, ty))),
-                    1 => Ok(lhs.expect_type(poss_types[0], ctx)?
-                        & rhs.expect_type(poss_types[0], ctx)?),
-                    _ => {
-                        let lhs_ty = lhs.val_type(ctx)?;
-                        if lhs_ty.0 != ValType::Any {
-                            return if poss_types.contains(&lhs_ty.0) {
-                                Ok(lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?)
-                            } else if op.types().iter().any(|(inp, _)| *inp == lhs_ty.0) {
-                                Err(e_map(TypeError::BiOpWrongTypeForResult(*op, lhs_ty.0, ty)))
-                            } else {
-                                Err(e_map(TypeError::BiOpWrongType(*op, lhs_ty.0)))
-                            };
-                        }
-                        let rhs_ty = rhs.val_type(ctx)?;
-                        if rhs_ty.0 != ValType::Any {
-                            return if poss_types.contains(&rhs_ty.0) {
-                                Ok(lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1)
-                            } else if op.types().iter().any(|(inp, _)| *inp == rhs_ty.0) {
-                                Err(e_map(TypeError::BiOpWrongTypeForResult(*op, rhs_ty.0, ty)))
-                            } else {
-                                Err(e_map(TypeError::BiOpWrongType(*op, rhs_ty.0)))
-                            };
-                        }
-                        Ok(lhs_ty.1 & rhs_ty.1)
+                let fits = |t: ValType| {
+                    if t == ValType::Any || poss_types.contains(&t) {
+                        Ok(())
+                    } else if types.iter().any(|(inp, _)| *inp == t) {
+                        Err(e_map(TypeError::BiOpWrongTypeForResult(*op, t, ty)))
+                    } else {
+                        Err(e_map(TypeError::BiOpWrongType(*op, t)))
                     }
+                };
+                match poss_types.len() {
+                    0 => errs.push(e_map(TypeError::BiOpWrongResult(*op, ty))),
+                    1 => {
+                        add_res!(lhs.expect_type(poss_types[0], ctx));
+                        add_res!(rhs.expect_type(poss_types[0], ctx));
+                    }
+                    _ => match (lhs.val_type(ctx), rhs.val_type(ctx)) {
+                        (Err(mut lhs), Err(mut rhs)) => {
+                            errs.append(&mut lhs);
+                            errs.append(&mut rhs);
+                        }
+                        (Err(mut either), Ok(_)) | (Ok(_), Err(mut either)) => {
+                            errs.append(&mut either);
+                        }
+                        (Ok(lhs_res), Ok(rhs_res)) => {
+                            match (lhs_res.0, rhs_res.0) {
+                                (ValType::Any, ValType::Any) => vars = lhs_res.1 & rhs_res.1,
+                                (ValType::Any, rhs_ty) => {
+                                    add_res!(lhs.expect_type(rhs_ty, ctx));
+                                    vars &= rhs_res.1;
+                                }
+                                (lhs_ty, ValType::Any) => {
+                                    add_res!(rhs.expect_type(lhs_ty, ctx));
+                                    vars &= lhs_res.1;
+                                }
+                                (lhs_ty, rhs_ty) if lhs_ty == rhs_ty => {
+                                    vars = lhs_res.1 & rhs_res.1
+                                }
+                                (lhs_ty, rhs_ty) => errs.push(e_map(
+                                    TypeError::BiOpDifferentTypes(*op, lhs_ty, rhs_ty),
+                                )),
+                            };
+                            errs.extend(fits(lhs_res.0).err());
+                            errs.extend(fits(rhs_res.0).err());
+                        }
+                    },
                 }
             }
             ExprKind::UnOperation(op, expr) => {
                 if op.val_type() != ty {
-                    return Err(e_map(TypeError::UnOpWrongType(*op, ty)));
+                    errs.push(e_map(TypeError::UnOpWrongType(*op, ty)));
                 }
-                expr.expect_type(ty, ctx)
+                add_res!(expr.expect_type(ty, ctx));
             }
             ExprKind::Absolute(expr) => {
                 if ty != ValType::Number {
-                    return Err(e_map(TypeError::AbsoluteValue(ty)));
+                    errs.push(e_map(TypeError::AbsoluteValue(ty)));
                 }
-                expr.expect_type(ty, ctx)
+                add_res!(expr.expect_type(ty, ctx));
             }
-            ExprKind::Bracket(expr) => expr.expect_type(ty, ctx),
+            ExprKind::Bracket(expr) => add_res!(expr.expect_type(ty, ctx)),
             ExprKind::Convert(expr, vt) => {
-                vt.assert(ty).map_err(e_map)?;
-                Ok(expr.val_type(ctx)?.1)
+                errs.extend(vt.assert(ty).err().map(e_map));
+                match expr.val_type(ctx) {
+                    Ok((_, v)) => vars &= v,
+                    Err(mut e) => errs.append(&mut e),
+                }
             }
             ExprKind::FuncCall(pdf, exprs) => {
-                pdf.ret_type().assert(ty).map_err(e_map)?;
+                errs.extend(pdf.ret_type().assert(ty).err().map(e_map));
                 let fargs = pdf.args();
                 if fargs.len() != exprs.len() {
-                    return Err(e_map(TypeError::ArgsWrongLength(fargs.len(), exprs.len())));
+                    errs.push(e_map(TypeError::ArgsWrongLength(fargs.len(), exprs.len())));
                 }
-                let mut v = Vars::new();
-                for i in 0..fargs.len() {
-                    v &= exprs[i].expect_type(fargs[i], ctx)?;
+                for i in 0..fargs.len().max(exprs.len()) {
+                    add_res!(exprs[i].expect_type(fargs[i], ctx));
                 }
-                Ok(v)
             }
             ExprKind::CalcCall(idx, exprs) => {
-                let proto = ctx
-                    .protos
-                    .get(idx)
-                    .ok_or(TurtleError::MissingDefinition(*idx))?
-                    .clone();
-                proto
-                    .ret
-                    .expect("calc should have ret type")
-                    .assert(ty)
-                    .map_err(e_map)?;
-                super::check_args(exprs, &proto.args, e_map, ctx)
+                let proto = ctx.protos[&*idx].clone();
+                errs.extend(
+                    proto
+                        .ret
+                        .expect("calc should have ret type")
+                        .assert(ty)
+                        .err()
+                        .map(e_map),
+                );
+                add_res!(super::check_args(exprs, &proto.args, e_map, ctx));
             }
         }
+        errs.otherwise(vars)
     }
 
     pub(crate) fn val_type(
         &mut self,
         ctx: &mut CheckContext,
-    ) -> Result<(ValType, Vars), TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeErrorSpan(e, self.start, self.end);
-        match &mut self.kind {
-            ExprKind::Const(val) => Ok((val.val_type(), Vars::new())),
-            ExprKind::Variable(var) => var.val_type(ctx),
+    ) -> Result<(ValType, Vars), Vec<Spanned<TypeError>>> {
+        let span = self.get_span();
+        let e_map = |e: TypeError| e.with_span(span);
+        let mut res_ty = ValType::Any;
+        let mut vars = Vars::new();
+        let mut errs = Vec::new();
+        macro_rules! add_res {
+            ($res:expr) => {
+                match $res {
+                    Ok(v) => vars &= v,
+                    Err(mut e) => errs.append(&mut e),
+                }
+            };
+        }
+        match &mut ***self {
+            ExprKind::Const(val) => res_ty = val.val_type(),
+            ExprKind::Variable(var) => return var.val_type(ctx).map_err(|e| vec![e]),
             ExprKind::BiOperation(lhs, op, rhs) => {
                 let types = op.types();
                 if types.len() == 1 {
-                    Ok((
-                        types[0].1,
-                        lhs.expect_type(types[0].0, ctx)? & rhs.expect_type(types[0].0, ctx)?,
-                    ))
+                    add_res!(lhs.expect_type(types[0].0, ctx));
+                    add_res!(rhs.expect_type(types[0].0, ctx));
+                    res_ty = types[0].1;
                 } else {
-                    let lhs_ty = lhs.val_type(ctx)?;
-                    if lhs_ty.0 != ValType::Any {
-                        return if types.iter().any(|(inp, _)| *inp == lhs_ty.0) {
-                            Ok((lhs_ty.0, lhs_ty.1 & rhs.expect_type(lhs_ty.0, ctx)?))
-                        } else {
-                            Err(e_map(TypeError::BiOpWrongType(*op, lhs_ty.0)))
-                        };
+                    match (lhs.val_type(ctx), rhs.val_type(ctx)) {
+                        (Err(mut lhs), Err(mut rhs)) => {
+                            errs.append(&mut lhs);
+                            errs.append(&mut rhs);
+                        }
+                        (Err(mut either), Ok(_)) | (Ok(_), Err(mut either)) => {
+                            errs.append(&mut either);
+                        }
+                        (Ok(lhs_res), Ok(rhs_res)) => {
+                            if lhs_res.0 != ValType::Any
+                                && !types.iter().any(|(inp, _)| *inp == lhs_res.0)
+                            {
+                                errs.push(e_map(TypeError::BiOpWrongType(*op, lhs_res.0)));
+                            }
+                            if rhs_res.0 != ValType::Any
+                                && !types.iter().any(|(inp, _)| *inp == rhs_res.0)
+                            {
+                                errs.push(e_map(TypeError::BiOpWrongType(*op, rhs_res.0)));
+                            }
+                            match (lhs_res.0, rhs_res.0) {
+                                (ValType::Any, ValType::Any) => vars = lhs_res.1 & rhs_res.1,
+                                (ValType::Any, rhs_ty) => {
+                                    vars = rhs_res.1;
+                                    add_res!(lhs.expect_type(rhs_ty, ctx));
+                                }
+                                (lhs_ty, ValType::Any) => {
+                                    vars = lhs_res.1;
+                                    add_res!(rhs.expect_type(lhs_ty, ctx));
+                                }
+                                (lhs_ty, rhs_ty) if lhs_ty == rhs_ty => {
+                                    vars = lhs_res.1 & rhs_res.1
+                                }
+                                (lhs_ty, rhs_ty) => {
+                                    errs.push(e_map(TypeError::BiOpDifferentTypes(
+                                        *op, lhs_ty, rhs_ty,
+                                    )));
+                                }
+                            }
+                        }
                     }
-                    let rhs_ty = rhs.val_type(ctx)?;
-                    if rhs_ty.0 != ValType::Any {
-                        return if types.iter().any(|(inp, _)| *inp == rhs_ty.0) {
-                            Ok((rhs_ty.0, lhs.expect_type(rhs_ty.0, ctx)? & rhs_ty.1))
-                        } else {
-                            Err(e_map(TypeError::BiOpWrongType(*op, rhs_ty.0)))
-                        };
-                    }
-                    Ok((ValType::Any, lhs_ty.1 & rhs_ty.1))
                 }
             }
             ExprKind::UnOperation(op, expr) => {
-                let ty = expr.val_type(ctx)?;
-                if ty.0 == op.val_type() {
-                    Ok(ty)
-                } else {
-                    Err(e_map(TypeError::UnOpWrongType(*op, ty.0)))
-                }
+                res_ty = op.val_type();
+                add_res!(expr.expect_type(res_ty, ctx));
             }
             ExprKind::Absolute(expr) => {
-                let ty = expr.val_type(ctx)?;
-                if ty.0 == ValType::Number {
-                    Ok(ty)
-                } else {
-                    Err(e_map(TypeError::AbsoluteValue(ty.0)))
-                }
+                res_ty = ValType::Number;
+                add_res!(expr.expect_type(ValType::Number, ctx));
             }
-            ExprKind::Bracket(expr) => expr.val_type(ctx),
-            ExprKind::Convert(from, to) => Ok((*to, from.val_type(ctx)?.1)),
+            ExprKind::Bracket(expr) => return expr.val_type(ctx),
+            ExprKind::Convert(from, to) => {
+                res_ty = *to;
+                add_res!(from.val_type(ctx).map(|(_, vars)| vars));
+            }
             ExprKind::FuncCall(pdf, args) => {
+                res_ty = pdf.ret_type();
                 let fargs = pdf.args();
                 if fargs.len() != args.len() {
-                    return Err(e_map(TypeError::ArgsWrongLength(args.len(), fargs.len())));
+                    errs.push(e_map(TypeError::ArgsWrongLength(args.len(), fargs.len())));
                 }
-                let mut v = Vars::new();
-                for (idx, arg) in args.iter_mut().enumerate() {
-                    let arg_ty = arg.val_type(ctx)?;
-                    if fargs[idx] != arg_ty.0 {
-                        return Err(e_map(TypeError::ArgWrongType(idx, arg_ty.0, fargs[idx])));
-                    }
-                    v &= arg_ty.1;
+                for (expr, arg) in args.iter_mut().zip(fargs) {
+                    add_res!(expr.expect_type(arg, ctx));
                 }
-                Ok((pdf.ret_type(), v))
             }
             ExprKind::CalcCall(idx, exprs) => {
                 let proto = ctx.protos[&*idx].clone();
-                Ok((
-                    proto.ret.expect("calc should have return type"),
-                    super::check_args(exprs, &proto.args, e_map, ctx)?,
-                ))
+                add_res!(super::check_args(exprs, &proto.args, e_map, ctx));
+                res_ty = proto.ret.expect("calc should have return type");
             }
         }
+        errs.otherwise((res_ty, vars))
     }
 
     pub(crate) fn collect_variables(&self) -> Vec<VariableKind> {
-        match &self.kind {
+        match &***self {
             ExprKind::Const(_) => Vec::new(),
-            ExprKind::Variable(var) => vec![var.kind],
+            ExprKind::Variable(var) => vec![***var],
             ExprKind::BiOperation(lhs, _, rhs) => {
                 let mut res = lhs.collect_variables();
                 res.append(&mut rhs.collect_variables());

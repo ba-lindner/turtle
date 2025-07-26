@@ -13,7 +13,7 @@ fn unfinished_expression() {
     let res = parser.parse_expr().unwrap_err();
     assert_eq!(
         res,
-        ParseError::UnexpectedEnd.attach_pos(FilePos::new(2, 1))
+        ParseError::UnexpectedEnd.with_span((FilePos::new(2, 1), FilePos::new(2, 1)))
     );
 }
 

@@ -1,12 +1,13 @@
 use std::{
     f64::consts::PI,
-    fmt::{Display, Write as _},
+    fmt::Display,
+    ops::{Deref, DerefMut},
 };
 
 use crate::{
-    Pos, SymbolTable,
-    pos::FilePos,
-    prog::{CalcDef, PathDef},
+    Disp, Spanned, SymbolTable,
+    pos::{Positionable, Span},
+    prog::{CalcDef, Param, PathDef},
 };
 
 pub use expr::{BiOperator, Expr, ExprKind, UnOperator};
@@ -26,29 +27,11 @@ pub type ArgDefList = Vec<(usize, ValType)>;
 
 #[derive(Debug, PartialEq)]
 pub struct Block {
-    pub begin: FilePos,
-    pub statements: Vec<Pos<Statement>>,
-}
-
-pub trait Narrate {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String);
-
-    fn narrate(&self, symbols: &SymbolTable) -> String {
-        let mut buf = String::new();
-        self.narrate_buf(symbols, &mut buf);
-        buf
-    }
-}
-
-impl Narrate for [Expr] {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
-        for (idx, expr) in self.iter().enumerate() {
-            if idx > 0 {
-                let _ = write!(buf, ", ");
-                expr.narrate_buf(symbols, buf);
-            }
-        }
-    }
+    /// first token, used for errors
+    pub begin: Span,
+    /// full block
+    pub full: Span,
+    pub statements: Vec<Spanned<Statement>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,13 +55,24 @@ pub enum ParseToken {
     CalcDef(CalcDef),
     EventHandler(EventKind, PathDef),
     StartBlock(Block),
-    Param(usize, Value),
+    Param(Param),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Variable {
-    pub pos: FilePos,
-    pub kind: VariableKind,
+pub struct Variable(pub Spanned<VariableKind>);
+
+impl Deref for Variable {
+    type Target = Spanned<VariableKind>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Variable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -89,16 +83,16 @@ pub enum VariableKind {
 }
 
 impl VariableKind {
-    pub fn at(self, pos: FilePos) -> Variable {
-        Variable { pos, kind: self }
+    pub fn at(self, span: impl Into<Span>) -> Variable {
+        Variable(self.with_span(span))
     }
 }
 
-impl Narrate for Variable {
-    fn narrate_buf(&self, symbols: &SymbolTable, buf: &mut String) {
-        let _ = match &self.kind {
+impl Disp for Variable {
+    fn disp(&self, f: &mut std::fmt::Formatter<'_>, symbols: &SymbolTable) -> std::fmt::Result {
+        match &*self.0 {
             VariableKind::Local(id, _) => write!(
-                buf,
+                f,
                 "{}",
                 symbols
                     .get_index(*id)
@@ -106,15 +100,15 @@ impl Narrate for Variable {
                     .0
             ),
             VariableKind::Global(id, _) => write!(
-                buf,
+                f,
                 "@{}",
                 symbols
                     .get_index(*id)
                     .expect("missing variable in symbol table")
                     .0
             ),
-            VariableKind::GlobalPreDef(pdv) => write!(buf, "@{}", pdv.get_str()),
-        };
+            VariableKind::GlobalPreDef(pdv) => write!(f, "@{}", pdv.get_str()),
+        }
     }
 }
 

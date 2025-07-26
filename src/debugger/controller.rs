@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    TProgram, TurtleError,
+    TProgram, ProgError,
     features::{Feature, FeatureState},
-    pos::{FilePos, Positionable},
+    pos::FilePos,
     prog::semcheck::{self, Vars},
     tokens::{EventKind, StmtKind, ValType, Value, VariableKind},
 };
@@ -404,14 +404,14 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
         Ok(())
     }
 
-    fn check_undef(&self, vars: Vars, variables: Vec<VariableKind>) -> Result<(), TurtleError> {
+    fn check_undef(&self, vars: Vars, variables: Vec<VariableKind>) -> Result<(), ProgError> {
         if !vars.locals() {
-            Err(TurtleError::UndefLocals(
+            Err(ProgError::UndefLocals(
                 FuncType::Main,
                 semcheck::collect_undef(variables, true),
             ))
         } else if !vars.globals() {
-            Err(TurtleError::UndefGlobals(semcheck::collect_undef(
+            Err(ProgError::UndefGlobals(semcheck::collect_undef(
                 variables, false,
             )))
         } else {
@@ -451,10 +451,10 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
     }
 
     pub fn add_func(&mut self, func: &str) -> Result<(), DebugErr> {
-        let func = self.prog.with_parser(func, |p| {
-            Ok(p.parse_next().ok_or(TurtleError::ParseError(
-                crate::prog::parser::ParseError::UnexpectedEnd.attach_pos(FilePos::default()),
-            ))??)
+        let func = self.prog.with_parser(func, |p| match p.parse_next() {
+            Some(Ok(func)) => Ok(func),
+            Some(Err(why)) => Err(ProgError::ParseError(why)),
+            None => Err(ProgError::ParseError(p.eof_err())),
         })?;
         let mut ctx = self.prog.get_context();
         match func {
@@ -462,7 +462,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                 if !path.semantic_check(&mut ctx)? {
                     let vars = path.body.collect_variables();
                     let undef = semcheck::collect_undef(vars, false);
-                    Err(TurtleError::UndefGlobals(undef))?;
+                    Err(ProgError::UndefGlobals(undef))?;
                 }
                 if let Some(proto) = ctx.protos.get(&path.name) {
                     if proto.args != path.args {
@@ -480,7 +480,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                 if !calc.semantic_check(&mut ctx)? {
                     let vars = calc.body.collect_variables();
                     let undef = semcheck::collect_undef(vars, false);
-                    Err(TurtleError::UndefGlobals(undef))?;
+                    Err(ProgError::UndefGlobals(undef))?;
                 }
                 if let Some(proto) = ctx.protos.get(&calc.name) {
                     if proto.args != calc.args {
@@ -498,7 +498,7 @@ impl<'p, W: Window + 'p> DebugController<'p, W> {
                 if !path.semantic_check(&mut ctx)? {
                     let vars = path.body.collect_variables();
                     let undef = semcheck::collect_undef(vars, false);
-                    Err(TurtleError::UndefGlobals(undef))?;
+                    Err(ProgError::UndefGlobals(undef))?;
                 }
                 let args: &[_] = match kind {
                     EventKind::Mouse => &[ValType::Number, ValType::Number, ValType::Boolean],

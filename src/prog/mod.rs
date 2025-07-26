@@ -2,8 +2,10 @@ use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard};
 use std::{ops::Deref, str::FromStr};
 
 use crate::{
-    Identified, SymbolTable, TurtleError,
+    ProgError, SymbolTable, TurtleError,
+    debugger::FuncType,
     features::FeatureConf,
+    pos::Span,
     tokens::{ArgDefList, Block, EventKind, Expr, ParseToken, ValType, Value},
 };
 
@@ -19,61 +21,92 @@ pub mod parser;
 pub(crate) mod semcheck;
 mod side_effects;
 
+trait Otherwise {
+    fn otherwise<T>(self, val: T) -> Result<T, Self>
+    where
+        Self: Sized;
+}
+
+impl<E> Otherwise for Vec<E> {
+    fn otherwise<T>(self, val: T) -> Result<T, Self> {
+        if self.is_empty() { Ok(val) } else { Err(self) }
+    }
+}
+
 #[derive(Default)]
 struct RawProg {
     paths: Vec<PathDef>,
     calcs: Vec<CalcDef>,
-    main: Option<Block>,
+    main: Vec<Block>,
     params: Vec<Param>,
-    key_event: Option<PathDef>,
-    mouse_event: Option<PathDef>,
+    key_event: Vec<PathDef>,
+    mouse_event: Vec<PathDef>,
 }
 
 impl RawProg {
-    fn insert_item(&mut self, item: ParseToken) -> Result<(), TurtleError> {
-        match item {
-            ParseToken::PathDef(def) => self.paths.push(def),
-            ParseToken::CalcDef(def) => self.calcs.push(def),
-            ParseToken::StartBlock(block) => {
-                if let Some(main) = &self.main {
-                    return Err(TurtleError::MultipleMains(main.begin, block.begin));
-                }
-                self.main = Some(block);
-            }
-            ParseToken::EventHandler(kind, func) => {
-                let curr = match kind {
-                    EventKind::Mouse => &mut self.mouse_event,
-                    EventKind::Key => &mut self.key_event,
-                };
-                if let Some(evt) = curr {
-                    return Err(TurtleError::MultipleEventHandler(
-                        kind,
-                        evt.body.begin,
-                        func.body.begin,
-                    ));
-                }
-                *curr = Some(func);
-            }
-            ParseToken::Param(name, value) => {
-                self.params.push(Param { name, value });
+    fn parse(
+        symbols: &mut SymbolTable,
+        features: &mut FeatureConf,
+        code: impl Iterator<Item = char>,
+    ) -> Result<Self, TurtleError> {
+        let ltokens = Lexer::new(symbols, features, code)
+            .collect_tokens()
+            .map_err(TurtleError::LexErrors)?;
+        let items = Parser::new(symbols, features, ltokens)
+            .collect_items()
+            .map_err(TurtleError::ParseErrors)?;
+        let mut this = Self::default();
+        for item in items {
+            match item {
+                ParseToken::PathDef(path) => this.paths.push(path),
+                ParseToken::CalcDef(calc) => this.calcs.push(calc),
+                ParseToken::EventHandler(kind, handler) => match kind {
+                    EventKind::Mouse => this.mouse_event.push(handler),
+                    EventKind::Key => this.key_event.push(handler),
+                },
+                ParseToken::StartBlock(block) => this.main.push(block),
+                ParseToken::Param(param) => this.params.push(param),
             }
         }
-        Ok(())
+        Ok(this)
     }
 
-    fn finish(self, symbols: SymbolTable, features: FeatureConf) -> Result<TProgram, TurtleError> {
-        let Some(main) = self.main else {
-            return Err(TurtleError::MissingMain);
+    fn construct(
+        self,
+        symbols: SymbolTable,
+        features: FeatureConf,
+    ) -> Result<TProgram, Vec<ProgError>> {
+        let mut errs = Vec::new();
+        if self.main.len() > 1 {
+            errs.push(ProgError::MultipleMains(
+                self.main.iter().map(|b| b.begin).collect(),
+            ));
+        }
+        if self.key_event.len() > 1 {
+            errs.push(ProgError::MultipleFuncs(
+                FuncType::Event(EventKind::Key),
+                self.key_event.iter().map(|f| f.body.begin).collect(),
+            ));
+        }
+        if self.mouse_event.len() > 1 {
+            errs.push(ProgError::MultipleFuncs(
+                FuncType::Event(EventKind::Mouse),
+                self.mouse_event.iter().map(|f| f.body.begin).collect(),
+            ));
+        }
+        let Some(main) = self.main.into_iter().next() else {
+            errs.push(ProgError::MissingMain);
+            return Err(errs);
         };
-        Ok(TProgram {
+        errs.otherwise(TProgram {
             name: None,
             features,
             paths: self.paths,
             calcs: self.calcs,
             main,
             params: self.params,
-            key_event: self.key_event,
-            mouse_event: self.mouse_event,
+            key_event: self.key_event.into_iter().next(),
+            mouse_event: self.mouse_event.into_iter().next(),
             symbols: symbols.clone(),
             extensions: Extensions {
                 symbols: RwLock::new(symbols),
@@ -108,19 +141,16 @@ impl TProgram {
         mut features: FeatureConf,
     ) -> Result<Self, TurtleError> {
         let mut symbols = SymbolTable::new();
-        let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
-        if print_symbols {
+        let raw = RawProg::parse(&mut symbols, &mut features, code.chars());
+        if print_symbols && raw.is_err() {
             for (idx, (name, _)) in symbols.iter().enumerate() {
                 println!("#{idx:<3} {name}");
             }
         }
-        let parser = Parser::new(&mut symbols, ltokens, &mut features);
-        let mut raw = RawProg::default();
-        for item in parser {
-            raw.insert_item(item?)?;
-        }
         features.finalize();
-        let mut this = raw.finish(symbols, features)?;
+        let mut this = raw?
+            .construct(symbols, features)
+            .map_err(TurtleError::ProgErrors)?;
         this.semantic_check()?;
         Ok(this)
     }
@@ -143,25 +173,7 @@ impl TProgram {
         Ok(this)
     }
 
-    fn check_idents(&self) -> Result<(), TurtleError> {
-        for (id, (_, kind)) in self.symbols.iter().enumerate() {
-            match kind {
-                Identified::Unknown => {
-                    return Err(TurtleError::UnidentifiedIdentifier(id));
-                }
-                Identified::Path => {
-                    self.get_path(id)?;
-                }
-                Identified::Calc => {
-                    self.get_calc(id)?;
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn get_path(&self, name: usize) -> Result<MaybeRef<'_, PathDef>, TurtleError> {
+    pub(crate) fn get_path(&self, name: usize) -> Result<MaybeRef<'_, PathDef>, ProgError> {
         let find = |p: &&PathDef| p.name == name;
         let ext = self.extensions.paths.read();
         if let Ok(path) = RwLockReadGuard::try_map(ext, |ps| ps.iter().find(find)) {
@@ -171,10 +183,10 @@ impl TProgram {
         if let Some(path) = def {
             return Ok(MaybeRef::Ref(path));
         }
-        Err(TurtleError::MissingDefinition(name))
+        Err(ProgError::MissingDefinition(name))
     }
 
-    pub(crate) fn get_calc(&self, name: usize) -> Result<MaybeRef<'_, CalcDef>, TurtleError> {
+    pub(crate) fn get_calc(&self, name: usize) -> Result<MaybeRef<'_, CalcDef>, ProgError> {
         let find = |c: &&CalcDef| c.name == name;
         let ext = self.extensions.calcs.read();
         if let Ok(calc) = RwLockReadGuard::try_map(ext, |cs| cs.iter().find(find)) {
@@ -184,7 +196,7 @@ impl TProgram {
         if let Some(path) = def {
             return Ok(MaybeRef::Ref(path));
         }
-        Err(TurtleError::MissingDefinition(name))
+        Err(ProgError::MissingDefinition(name))
     }
 
     pub(crate) fn get_event(&self, kind: EventKind) -> Option<MaybeRef<'_, PathDef>> {
@@ -230,8 +242,10 @@ impl TProgram {
     ) -> Result<T, TurtleError> {
         let mut symbols = self.extensions.symbols.write();
         let mut features = self.features;
-        let ltokens = Lexer::new(&mut symbols, &mut features, code.chars()).collect_tokens()?;
-        let mut parser = Parser::new(&mut symbols, ltokens, &mut features);
+        let ltokens = Lexer::new(&mut symbols, &mut features, code.chars())
+            .collect_tokens()
+            .map_err(TurtleError::LexErrors)?;
+        let mut parser = Parser::new(&mut symbols, &mut features, ltokens);
         f(&mut parser)
     }
 }
@@ -291,4 +305,5 @@ pub struct Extensions {
 pub struct Param {
     pub name: usize,
     pub value: Value,
+    pub span: Span,
 }

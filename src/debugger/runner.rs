@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     TProgram,
-    pos::{FilePos, Pos, Positionable},
+    pos::{FilePos, Positionable, Spanned},
     tokens::{Expr, PredefVar, Statement, StmtKind, Value, VariableKind},
 };
 
@@ -128,19 +128,19 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
     //
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    fn get_action(&mut self) -> Result<Pos<DbgAction>, TryRecvError> {
+    fn get_action(&mut self) -> Result<Spanned<DbgAction>, TryRecvError> {
         let mut act = None;
         loop {
             match self.actions.try_recv() {
                 Ok((DbgAction::BlockEntered, pos)) => self.last_pos = pos,
                 Ok((a @ DbgAction::AfterStmt(_), pos)) => {
-                    act = Some(a.attach_pos(pos));
+                    act = Some(a.with_span(pos, pos));
                     self.last_pos = pos;
                 }
                 Ok((DbgAction::Split(path, args, ttl), _)) => {
                     self.split_queue.push((path, args, ttl))
                 }
-                Ok((a, pos)) => act = Some(a.attach_pos(pos)),
+                Ok((a, pos)) => act = Some(a.with_span(pos, pos)),
                 Err(TryRecvError::Disconnected) => return Err(TryRecvError::Disconnected),
                 Err(TryRecvError::Empty) => return act.ok_or(TryRecvError::Empty),
             }
@@ -189,7 +189,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                     break;
                 }
                 DbgAction::BeforeStmt => {
-                    if let Some(idx) = self.ctx.breakpoint_hit(self.last_pos, act.get_pos()) {
+                    if let Some(idx) = self.ctx.breakpoint_hit(self.last_pos, act.get_start()) {
                         return StepResult::Breakpoint(idx);
                     }
                     if let Some(kind) = res {
@@ -216,7 +216,7 @@ impl<'p, W: Window + 'p> TurtleRunner<'p, W> {
                 .expect("future should only return if some action was sent");
             match *act {
                 DbgAction::BeforeStmt => {
-                    if let Some(idx) = self.ctx.breakpoint_hit(self.last_pos, act.get_pos()) {
+                    if let Some(idx) = self.ctx.breakpoint_hit(self.last_pos, act.get_start()) {
                         return StepResult::Breakpoint(idx);
                     }
                 }

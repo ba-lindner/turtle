@@ -1,5 +1,5 @@
 use crate::{
-    TurtleError,
+    pos::{Positionable, Spanned},
     tokens::{ValType, Variable, VariableKind},
 };
 
@@ -9,9 +9,10 @@ impl Variable {
     pub(crate) fn val_type(
         &mut self,
         ctx: &mut CheckContext,
-    ) -> Result<(ValType, Vars), TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
-        match &mut self.kind {
+    ) -> Result<(ValType, Vars), Spanned<TypeError>> {
+        let span = self.get_span();
+        let e_map = |e: TypeError| e.with_span(span);
+        match &mut ***self {
             VariableKind::Local(idx, vt) => {
                 if let Some(l) = ctx.locals.get(idx) {
                     if *vt == ValType::Any {
@@ -40,9 +41,10 @@ impl Variable {
         &mut self,
         ty: ValType,
         ctx: &mut CheckContext,
-    ) -> Result<(), TurtleError> {
-        let e_map = |e: TypeError| TurtleError::TypeError(e, self.pos);
-        match &mut self.kind {
+    ) -> Result<(), Spanned<TypeError>> {
+        let span = self.get_span();
+        let e_map = |e: TypeError| e.with_span(span);
+        match &mut ***self {
             VariableKind::Local(idx, vt) => {
                 if *vt == ValType::Any {
                     if let Some(l) = ctx.locals.get(idx) {

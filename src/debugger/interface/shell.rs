@@ -1,7 +1,7 @@
 use std::io::Write as _;
 
 use crate::{
-    TurtleError,
+    ProgError,
     debugger::{Debugger, FuncType, ProgEnd, window::Window},
     prog::parser::{ParseError, Parser, TokenExpectation},
     tokens::{EventKind, PredefVar},
@@ -173,7 +173,7 @@ impl Shell {
             let p_stmt = |p: &mut Parser<'_, '_>| match p.parse_stm() {
                 Err(why) => match *why {
                     ParseError::UnexpectedEnd => Ok(Found::None),
-                    _ => Err(TurtleError::ParseError(why)),
+                    _ => Err(ProgError::ParseError(why)),
                 },
                 Ok(_) => Ok(Found::Stmt),
             };
@@ -187,7 +187,7 @@ impl Shell {
                             p_stmt(p)
                         }
                         ParseError::UnexpectedEnd => Ok(Found::None),
-                        _ => Err(TurtleError::ParseError(why)),
+                        _ => Err(ProgError::ParseError(why)),
                     },
                     Some(Ok(_)) => Ok(Found::Func),
                     None => Ok(Found::None),

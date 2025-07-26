@@ -17,6 +17,10 @@ impl FilePos {
     pub fn is_empty(&self) -> bool {
         self.column == 0 && self.line == 0
     }
+
+    pub fn to(self, other: FilePos) -> Span {
+        Span::new(self, other)
+    }
 }
 
 impl Display for FilePos {
@@ -44,31 +48,88 @@ impl FromStr for FilePos {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
+pub struct Span {
+    pub start: FilePos,
+    pub end: FilePos,
+}
+
+impl Span {
+    pub fn new(start: FilePos, end: FilePos) -> Self {
+        Self { start, end }
+    }
+
+    pub fn to(&self, other: Span) -> Self {
+        Self {
+            start: self.start,
+            end: other.end,
+        }
+    }
+}
+
+impl From<(FilePos, FilePos)> for Span {
+    fn from((start, end): (FilePos, FilePos)) -> Self {
+        Self { start, end }
+    }
+}
+
+impl<T> From<Spanned<T>> for Span {
+    fn from(value: Spanned<T>) -> Self {
+        value.get_span()
+    }
+}
+
+impl<T> From<&'_ Spanned<T>> for Span {
+    fn from(value: &'_ Spanned<T>) -> Self {
+        value.get_span()
+    }
+}
+
+impl<T> From<&'_ mut Spanned<T>> for Span {
+    fn from(value: &'_ mut Spanned<T>) -> Self {
+        value.get_span()
+    }
+}
+
+// impl<T, U> From<(Spanned<T>, Spanned<U>)> for Span {
+//     fn from(value: (Spanned<T>, Spanned<U>)) -> Self {
+//         value.0.span.to(value.1.span)
+//     }
+// }
+
+impl Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} - {}", self.start, self.end)
+    }
+}
+
 /// Attach [`FilePos`] to any type `T`, mostly tokens
 ///
 /// Implements [`Deref`](std::ops::Deref) to access inner value
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Pos<T> {
-    pos: FilePos,
+pub struct Spanned<T> {
     token: T,
+    span: Span,
 }
 
-impl<T> Pos<T> {
+impl<T> Spanned<T> {
     /// Create new [`Pos`] wrapper.
-    pub fn new(token: T, pos: FilePos) -> Self {
-        Self { pos, token }
+    pub fn new(token: T, span: impl Into<Span>) -> Self {
+        Self {
+            token,
+            span: span.into(),
+        }
     }
 
-    /// Get attached [`FilePos`]
-    pub fn get_pos(&self) -> FilePos {
-        self.pos
+    pub fn get_span(&self) -> Span {
+        self.span
     }
 
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Pos<U> {
-        let Self { pos, token } = self;
-        Pos {
-            pos,
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
+        let Self { token, span } = self;
+        Spanned {
             token: f(token),
+            span,
         }
     }
 
@@ -77,7 +138,7 @@ impl<T> Pos<T> {
     }
 }
 
-impl<T> std::ops::Deref for Pos<T> {
+impl<T> std::ops::Deref for Spanned<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -85,18 +146,24 @@ impl<T> std::ops::Deref for Pos<T> {
     }
 }
 
-impl<T> std::ops::DerefMut for Pos<T> {
+impl<T> std::ops::DerefMut for Spanned<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.token
     }
 }
 
+impl<T: Display> Display for Spanned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} at {}", self.token, self.span)
+    }
+}
+
 pub trait Positionable: Sized {
-    fn attach_pos(self, pos: FilePos) -> Pos<Self>;
+    fn with_span(self, span: impl Into<Span>) -> Spanned<Self>;
 }
 
 impl<T> Positionable for T {
-    fn attach_pos(self, pos: FilePos) -> Pos<Self> {
-        Pos::new(self, pos)
+    fn with_span(self, span: impl Into<Span>) -> Spanned<Self> {
+        Spanned::new(self, span)
     }
 }

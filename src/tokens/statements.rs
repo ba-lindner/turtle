@@ -1,6 +1,6 @@
-use crate::SymbolTable;
+use crate::{Commas, Disp, SymbolTable};
 
-use super::{ArgList, BiOperator, Block, Expr, Narrate as _, Variable};
+use super::{ArgList, BiOperator, Block, Expr, Variable};
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
@@ -83,7 +83,7 @@ impl Statement {
                     "{} {}by {}",
                     if *draw { "walked" } else { "jumped" },
                     if *back { "back " } else { "" },
-                    dist.narrate(symbols)
+                    dist.with_symbols(symbols)
                 )
             }
             Statement::MoveHome(draw) => {
@@ -93,18 +93,18 @@ impl Statement {
                 println!(
                     "turned {} by {}",
                     if *left { "left" } else { "right" },
-                    by.narrate(symbols)
+                    by.with_symbols(symbols)
                 )
             }
             Statement::Direction(expr) => {
-                println!("set direction to {}", expr.narrate(symbols))
+                println!("set direction to {}", expr.with_symbols(symbols))
             }
             Statement::Color(r, g, b) => {
                 println!(
                     "set color to ({}, {}, {})",
-                    r.narrate(symbols),
-                    g.narrate(symbols),
-                    b.narrate(symbols),
+                    r.with_symbols(symbols),
+                    g.with_symbols(symbols),
+                    b.with_symbols(symbols),
                 )
             }
             Statement::Clear => println!("cleared screen"),
@@ -117,19 +117,19 @@ impl Statement {
                         .get_index(*id)
                         .expect("missing path in symbol table")
                         .0,
-                    args.narrate(symbols),
+                    Commas(args, ", ").with_symbols(symbols),
                 )
             }
             Statement::Store(expr, var) => {
                 println!(
                     "stored {} to {}",
-                    expr.narrate(symbols),
-                    var.narrate(symbols),
+                    expr.with_symbols(symbols),
+                    var.with_symbols(symbols),
                 )
             }
             Statement::Calc { var, val, op } => {
-                let var = var.narrate(symbols);
-                let val = val.narrate(symbols);
+                let var = var.with_symbols(symbols);
+                let val = val.with_symbols(symbols);
                 match op {
                     BiOperator::Add => println!("added {val} to {var}"),
                     BiOperator::Sub => println!("subtracted {val} from {var}"),
@@ -142,7 +142,7 @@ impl Statement {
             Statement::MoveMark(draw) => {
                 println!("{} to last mark", if *draw { "walked" } else { "jumped" })
             }
-            Statement::Print(txt) => println!("printed {}", txt.narrate(symbols)),
+            Statement::Print(txt) => println!("printed {}", txt.with_symbols(symbols)),
             Statement::Split(id, args) => {
                 println!(
                     "split path {}({})",
@@ -150,7 +150,7 @@ impl Statement {
                         .get_index(*id)
                         .expect("missing path in symbol table")
                         .0,
-                    args.narrate(symbols),
+                    Commas(args, ", ").with_symbols(symbols),
                 )
             }
             Statement::Wait => println!("waited"),

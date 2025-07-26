@@ -13,14 +13,14 @@ fn if_branch() {
     assert_eq!(
         parser.parse_stm().unwrap(),
         stmt!(
-            1 IfBranch(
+            1 7 IfBranch(
                 2 4 BiOperation(
                     2 2 Variable(2 Local(0)),
                     Less,
                     4 4 Const(Number(2.0))
                 ),
-                1 {
-                    6 Stop ()
+                1 7 {
+                    6 6 Stop ()
                 }
             )
         )
@@ -49,7 +49,7 @@ fn if_else_branch() {
     assert_eq!(
         parser.parse_stm().unwrap(),
         stmt!(
-            1 IfElseBranch(
+            1 14 IfElseBranch(
                 2 8 UnOperation(
                     Not,
                     3 8 Bracket (
@@ -60,11 +60,11 @@ fn if_else_branch() {
                         )
                     )
                 ),
-                1 {
-                    10 Stop ()
+                9 11 {
+                    10 10 Stop ()
                 },
-                11 {
-                    12 MoveDist(
+                11 14 {
+                    12 13 MoveDist(
                         13 13 Const(Number(30.0)),
                         true,
                         false,

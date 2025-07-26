@@ -11,7 +11,7 @@ use varlist::VarList;
 use window::Window;
 
 use crate::{
-    Disp, SymbolTable, TurtleError,
+    Disp, SymbolTable, ProgError,
     pos::FilePos,
     tokens::{EventKind, PredefVar, StmtKind, Value},
 };
@@ -214,7 +214,7 @@ pub enum DebugErr {
     #[error("no frame #{0}")]
     FrameNotFound(usize),
     #[error("{0}")]
-    TurtleError(#[from] TurtleError),
+    TurtleError(#[from] ProgError),
     #[error("expression has side effects")]
     ExprSideEffects,
     #[error("cannot modify main block")]
